@@ -1,54 +1,80 @@
-# 📁 Sistema de Shorts — Todos os Arquivos
+# 📁 Sistema de Shorts — Guia Completo
 
-Coloque todos os arquivos na **mesma pasta**. É só isso.
+Coloque todos os arquivos na mesma pasta.
 
 ```
 📁 minha-pasta/
-├── banco.py                ← banco de dados (usado pelos outros)
-├── youtube_para_shorts.py  ← pipeline principal (baixar + cortar + processar)
-├── agendador.py            ← agendar e postar no YouTube automaticamente
-└── processar_video.py      ← processar vídeos avulsos que você já tem
+├── banco.py                ← banco de dados (usado por todos)
+├── youtube_para_shorts.py  ← baixa do YouTube + corta + processa
+├── processar_video.py      ← vídeo local + corta + processa
+├── agendador.py            ← agenda e posta automaticamente
+└── COMO_USAR.md            ← este guia
 ```
 
 ---
 
-## 🚀 Fluxo completo do zero
+## 🚀 Instalação
 
-### 1. Instalar dependências (uma vez só)
 ```bash
 pip install yt-dlp openai-whisper anthropic google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client schedule
 ```
-Instalar FFmpeg: https://ffmpeg.org/download.html
 
-### 2. Configurar chaves
+FFmpeg: https://ffmpeg.org/download.html
+
+---
+
+## ⚙️ Configurar sua chave Anthropic
+
 ```bash
-# Chave Anthropic (https://console.anthropic.com)
+# Mac/Linux
 export ANTHROPIC_API_KEY=sk-ant-SuaChaveAqui
+
+# Windows
+set ANTHROPIC_API_KEY=sk-ant-SuaChaveAqui
 ```
 
-### 3. Processar um vídeo do YouTube
+Crie sua chave em: https://console.anthropic.com
+
+---
+
+## 📺 Fluxo 1 — Vídeo do YouTube
+
 ```bash
 python youtube_para_shorts.py --url https://youtu.be/XXXXXXXXX
 ```
-→ Gera os Shorts prontos em `output/`
 
-### 4. Ver os cortes no banco
+Baixa -> transcreve -> IA corta -> processa -> salva em `output/`.
+
+---
+
+## 📁 Fluxo 2 — Vídeo que você já tem no computador
+
 ```bash
-python banco.py --listar-prontos
+python processar_video.py --arquivo meu_video.mp4
 ```
 
-### 5. Agendar postagem automática
+Transcreve -> IA corta -> processa para TikTok + Shorts -> salva em `output/`.
+
 ```bash
-# Configurar conta YouTube (uma vez só)
+# Processar todos os vídeos de uma pasta de uma vez
+python processar_video.py --pasta ./meus_videos
+```
+
+---
+
+## 📅 Fluxo 3 — Agendar e postar automaticamente
+
+```bash
+# 1. Autenticar com YouTube (uma vez só)
 python agendador.py --auth
 
-# Agendar todos os cortes prontos
+# 2. Agendar todos os cortes prontos
 python agendador.py --agendar-lote
 
-# Ver a fila
+# 3. Ver a fila
 python agendador.py --listar
 
-# Deixar postando sozinho
+# 4. Deixar postando sozinho
 python agendador.py --daemon
 ```
 
@@ -56,40 +82,79 @@ python agendador.py --daemon
 
 ## 📋 Referência rápida de comandos
 
-| Arquivo | Comando | O que faz |
-|---|---|---|
-| `youtube_para_shorts.py` | `--url URL` | Baixa, corta e processa |
-| `youtube_para_shorts.py` | `--url URL --forcar` | Reprocessa vídeo já no banco |
-| `banco.py` | `--listar` | Lista vídeos processados |
-| `banco.py` | `--listar-prontos` | Lista cortes prontos |
-| `banco.py` | `--stats` | Custo total de API |
-| `agendador.py` | `--auth` | Autentica com YouTube |
-| `agendador.py` | `--agendar-lote` | Agenda tudo automaticamente |
-| `agendador.py` | `--listar` | Mostra fila de postagem |
-| `agendador.py` | `--postar-agora ID` | Posta imediatamente |
-| `agendador.py` | `--daemon` | Roda em loop postando |
-| `processar_video.py` | *(sem args)* | Processa pasta `input/` |
+### youtube_para_shorts.py
+```bash
+--url URL              # processar vídeo do YouTube
+--url URL --forcar     # reprocessar mesmo se já estiver no banco
+--modelo small         # usar modelo Whisper mais preciso
+```
+
+### processar_video.py
+```bash
+--arquivo video.mp4      # processar vídeo local
+--pasta ./videos         # processar todos da pasta
+--arquivo v.mp4 --forcar # reprocessar
+--modelo small           # modelo Whisper mais preciso
+```
+
+### banco.py
+```bash
+--listar               # todos os vídeos processados
+--listar-prontos       # cortes prontos para postar
+--listar-cortes ID     # cortes de um vídeo específico
+--stats                # custo total e resumo geral
+--resetar URL_OU_ID    # permite reprocessar um vídeo
+```
+
+### agendador.py
+```bash
+--auth                            # autenticar com YouTube
+--agendar-lote                    # agenda tudo automaticamente
+--agendar ID --data "AAAA-MM-DD HH:MM"  # data específica
+--listar                          # fila de agendamentos
+--postar-agora ID                 # posta imediatamente
+--daemon                          # roda em loop postando
+```
 
 ---
 
 ## ⚙️ O que editar em cada arquivo
 
-### `youtube_para_shorts.py` — linha ~20
+### youtube_para_shorts.py e processar_video.py
 ```python
-CHAVE_ANTHROPIC = "sk-ant-SuaChave"  # sua chave
-NOME_CANAL      = "@SeuCanal"        # seu @ do YouTube
-MODELO_WHISPER  = "base"             # tiny/base/small/medium/large
+NOME_CANAL      = "@SeuCanal"   # seu @ do YouTube/TikTok
+COR_LEGENDA     = "white"       # white | yellow | cyan
+MODELO_WHISPER  = "base"        # tiny | base | small | medium | large
+IDIOMA          = "pt"          # pt | en | auto
 ```
 
-### `agendador.py` — linha ~40
+### agendador.py
 ```python
-HORARIOS_IDEAIS  = ["07:00","12:00","18:00","21:00"]  # quando postar
-INTERVALO_HORAS  = 3    # mínimo entre posts
-PRIVACIDADE_PADRAO = "public"  # public/private/unlisted
+HORARIOS_IDEAIS    = ["07:00","12:00","18:00","21:00"]
+INTERVALO_HORAS    = 3          # mínimo entre posts
+PRIVACIDADE_PADRAO = "public"   # public | private | unlisted
 ```
 
-### `processar_video.py` — linha ~50
-```python
-NOME_CANAL = "@SeuCanal"   # seu @ do YouTube
-COR_LEGENDA = "white"      # cor das legendas
+---
+
+## 📊 Modelos Whisper
+
+| Modelo | Velocidade | Precisão |
+|--------|-----------|----------|
+| tiny   | Muito rápido | Baixa |
+| base   | Rápido | Boa |
+| small  | Médio | Ótima |
+| medium | Lento | Excelente |
+| large  | Muito lento | Máxima |
+
+---
+
+## 📁 Pastas geradas automaticamente
+
+```
+📁 minha-pasta/
+├── downloads/          ← vídeos baixados do YouTube
+├── cortes/             ← cortes brutos (intermediário)
+├── output/             ← vídeos prontos + .txt com título/descrição
+└── banco_shorts.db     ← banco de dados SQLite
 ```
