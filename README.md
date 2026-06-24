@@ -1,6 +1,6 @@
 # 📁 Sistema de Shorts — Guia Completo
 
-Coloque todos os arquivos na mesma pasta.
+Coloque todos os arquivos na **mesma pasta**. É só isso.
 
 ```
 📁 minha-pasta/
@@ -13,12 +13,11 @@ Coloque todos os arquivos na mesma pasta.
 
 ---
 
-## 🚀 Instalação
+## 🚀 Instalação (uma vez só)
 
 ```bash
 pip install yt-dlp openai-whisper anthropic google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client schedule
 ```
-
 FFmpeg: https://ffmpeg.org/download.html
 
 ---
@@ -32,7 +31,6 @@ export ANTHROPIC_API_KEY=sk-ant-SuaChaveAqui
 # Windows
 set ANTHROPIC_API_KEY=sk-ant-SuaChaveAqui
 ```
-
 Crie sua chave em: https://console.anthropic.com
 
 ---
@@ -42,8 +40,7 @@ Crie sua chave em: https://console.anthropic.com
 ```bash
 python youtube_para_shorts.py --url https://youtu.be/XXXXXXXXX
 ```
-
-Baixa -> transcreve -> IA corta -> processa -> salva em `output/`.
+Baixa → transcreve → IA corta → processa → salva em `output/`
 
 ---
 
@@ -52,8 +49,7 @@ Baixa -> transcreve -> IA corta -> processa -> salva em `output/`.
 ```bash
 python processar_video.py --arquivo meu_video.mp4
 ```
-
-Transcreve -> IA corta -> processa para TikTok + Shorts -> salva em `output/`.
+Transcreve → IA corta → processa para TikTok + Shorts → salva em `output/`
 
 ```bash
 # Processar todos os vídeos de uma pasta de uma vez
@@ -80,7 +76,7 @@ python agendador.py --daemon
 
 ---
 
-## 📋 Referência rápida de comandos
+## 📋 Referência rápida de todos os comandos
 
 ### youtube_para_shorts.py
 ```bash
@@ -91,10 +87,10 @@ python agendador.py --daemon
 
 ### processar_video.py
 ```bash
---arquivo video.mp4      # processar vídeo local
---pasta ./videos         # processar todos da pasta
---arquivo v.mp4 --forcar # reprocessar
---modelo small           # modelo Whisper mais preciso
+--arquivo video.mp4    # processar vídeo local
+--pasta ./videos       # processar todos da pasta
+--arquivo v.mp4 --forcar  # reprocessar
+--modelo small         # modelo Whisper mais preciso
 ```
 
 ### banco.py
@@ -108,12 +104,12 @@ python agendador.py --daemon
 
 ### agendador.py
 ```bash
---auth                            # autenticar com YouTube
---agendar-lote                    # agenda tudo automaticamente
+--auth                          # autenticar com YouTube
+--agendar-lote                  # agenda tudo automaticamente
 --agendar ID --data "AAAA-MM-DD HH:MM"  # data específica
---listar                          # fila de agendamentos
---postar-agora ID                 # posta imediatamente
---daemon                          # roda em loop postando
+--listar                        # fila de agendamentos
+--postar-agora ID               # posta imediatamente
+--daemon                        # roda em loop postando
 ```
 
 ---
@@ -142,7 +138,7 @@ PRIVACIDADE_PADRAO = "public"   # public | private | unlisted
 | Modelo | Velocidade | Precisão |
 |--------|-----------|----------|
 | tiny   | Muito rápido | Baixa |
-| base   | Rápido | Boa |
+| base   | Rápido | Boa ✓ |
 | small  | Médio | Ótima |
 | medium | Lento | Excelente |
 | large  | Muito lento | Máxima |
@@ -155,6 +151,74 @@ PRIVACIDADE_PADRAO = "public"   # public | private | unlisted
 📁 minha-pasta/
 ├── downloads/          ← vídeos baixados do YouTube
 ├── cortes/             ← cortes brutos (intermediário)
-├── output/             ← vídeos prontos + .txt com título/descrição
+├── output/             ← ✅ vídeos prontos + .txt com título/descrição
 └── banco_shorts.db     ← banco de dados SQLite
 ```
+
+---
+
+## 🎬 gerador_conteudo.py — Vídeos 100% originais
+
+Gera vídeos religiosos originais com IA — sem precisar de nenhum vídeo externo.
+
+### Configuração extra
+```bash
+# Voz gratuita (já funciona sem nada)
+pip install gtts
+
+# Voz profissional ElevenLabs (opcional — R$28/mês)
+export ELEVENLABS_API_KEY=sua_chave_aqui
+```
+
+### Comandos
+```bash
+# Gerar os 3 vídeos do dia (padrão)
+python gerador_conteudo.py
+
+# Gerar quantidade específica
+python gerador_conteudo.py --quantidade 4
+
+# Só vídeos longos (>60s)
+python gerador_conteudo.py --longo
+
+# Formato específico
+python gerador_conteudo.py --formato reflexao
+python gerador_conteudo.py --formato historia
+python gerador_conteudo.py --formato versiculo
+
+# Com tema específico
+python gerador_conteudo.py --formato reflexao --tema "ansiedade e fé"
+python gerador_conteudo.py --formato historia --tema "Davi e Golias"
+python gerador_conteudo.py --formato versiculo --tema "Salmos 91"
+```
+
+### Distribuição de duração (otimizada para monetização)
+| Formato | Duração | RPM |
+|---|---|---|
+| Reflexão do dia | 75–90s | Máximo |
+| História bíblica/santo | 70–85s | Máximo |
+| Versículo do dia | 60–65s | Base monetização |
+
+### Pastas que você precisa criar (opcional mas recomendado)
+```
+📁 fundos/    ← vídeos de fundo (natureza, céu, água, nuvens)
+              Baixe de: pexels.com/videos — gratuito e sem copyright
+📁 musicas/   ← músicas instrumentais de fundo
+              Baixe de: pixabay.com/music — gratuito e sem copyright
+```
+Sem essas pastas, o vídeo fica com fundo preto — funciona, mas fica menos bonito.
+
+### Rotina diária completa (4 vídeos/dia)
+```bash
+# Gerar 3 originais
+python gerador_conteudo.py --quantidade 3
+
+# Processar 1 corte de podcast
+python youtube_para_shorts.py --url https://youtu.be/XXXXXXXXX
+
+# Agendar tudo
+python agendador.py --agendar-lote
+
+# Ver fila
+python agendador.py --listar
+``` 
