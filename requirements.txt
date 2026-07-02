@@ -1,0 +1,52 @@
+# ============================================================
+#  BoomVibes — Dependências Python
+#  Instale com: pip install -r requirements.txt
+# ============================================================
+
+# ── IA e APIs ────────────────────────────────────────────
+anthropic>=0.34.0          # Claude (roteiros, análise, cortes)
+openai-whisper>=20231117   # Transcrição de áudio local
+
+# ── Download e processamento de vídeo ────────────────────
+yt-dlp>=2024.1.0           # Download de vídeos do YouTube
+
+# ── Text-to-speech ───────────────────────────────────────
+gTTS>=2.5.0                # Voz gratuita (fallback)
+# elevenlabs                # Voz profissional — instale se usar ElevenLabs
+
+# ── Servidor e interface ──────────────────────────────────
+fastapi>=0.111.0           # API do servidor local
+uvicorn[standard]>=0.29.0  # Servidor ASGI
+python-multipart>=0.0.9    # Upload de arquivos via API
+aiofiles>=23.2.1           # Arquivos assíncronos
+
+# ── Credenciais e configuração ────────────────────────────
+python-dotenv>=1.0.0       # Leitura do arquivo .env
+
+# ── Google APIs (YouTube upload + Analytics) ─────────────
+google-auth>=2.29.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.128.0
+
+# ── Notificações ──────────────────────────────────────────
+httpx>=0.27.0              # HTTP client (Telegram, TikTok)
+
+# ── Agendamento e retry ────────────────────────────────────
+schedule>=1.2.2            # Daemon de postagem
+tenacity>=8.3.0            # Retry com backoff exponencial
+
+# ── Áudio ─────────────────────────────────────────────────
+pydub>=0.25.1              # Processamento de áudio (opcional)
+
+# ── Utilitários ───────────────────────────────────────────
+requests>=2.31.0
+requests-toolbelt>=1.0.0
+
+# ============================================================
+#  FFmpeg NÃO é um pacote Python — instale separadamente:
+#
+#  Windows : winget install ffmpeg
+#  Mac     : brew install ffmpeg
+#  Linux   : sudo apt install ffmpeg
+# ============================================================

@@ -37,30 +37,32 @@
 import os, sys, json, re, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
+from logger_setup import get_logger
+from retry import chamar_anthropic
+from telegram import notificar
+
+logger = get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════
-#  CONFIGURAÇÕES — edite aqui antes de usar
+#  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
-CHAVE_ANTHROPIC = os.getenv("ANTHROPIC_API_KEY", "")  # ou cole: "sk-ant-..."
-MODELO_CLAUDE   = "claude-sonnet-4-6"
+from config import cfg
 
-PASTA_CORTES    = "cortes"
-PASTA_PRONTOS   = "output"
-
-NOME_CANAL      = "@SeuCanal"      # aparece no canto do vídeo
-COR_LEGENDA     = "white"          # white | yellow | cyan
-TAMANHO_FONT    = 20               # tamanho da legenda (18–24)
-QUALIDADE_CRF   = 22               # 18=alta, 22=ótima, 28=comprimida
-VELOCIDADE_ENC  = "medium"         # ultrafast | fast | medium | slow
-PITCH_VALOR     = "1.02"           # +2% imperceptível — muda fingerprint
-
-MODELO_WHISPER  = "base"           # tiny | base | small | medium | large
-IDIOMA          = "pt"             # pt | en | auto
-
-DURACAO_GLOBAL_MIN = 30            # mínimo de qualquer corte (segundos)
-DURACAO_GLOBAL_MAX = 59            # máximo — limite monetização TikTok e Shorts
-
-GERAR_DESCRICAO = True             # IA gera título + descrição + hashtags
+CHAVE_ANTHROPIC    = cfg.chave_anthropic
+MODELO_CLAUDE      = cfg.modelo_claude
+PASTA_CORTES       = str(cfg.pasta_cortes)
+PASTA_PRONTOS      = str(cfg.pasta_prontos)
+NOME_CANAL         = cfg.nome_canal
+COR_LEGENDA        = cfg.cor_legenda
+TAMANHO_FONT       = cfg.tamanho_font
+QUALIDADE_CRF      = cfg.qualidade_crf
+VELOCIDADE_ENC     = cfg.velocidade_enc
+PITCH_VALOR        = cfg.pitch_valor
+MODELO_WHISPER     = cfg.modelo_whisper
+IDIOMA             = cfg.idioma
+DURACAO_GLOBAL_MIN = cfg.duracao_global_min
+DURACAO_GLOBAL_MAX = cfg.duracao_global_max
+GERAR_DESCRICAO    = True
 # ═══════════════════════════════════════════════════════
 
 CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
@@ -70,6 +72,9 @@ def log(msg, nivel="INFO"):
     hora = datetime.now().strftime("%H:%M:%S")
     p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","IA":"🤖","DB":"🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
+    if nivel == "ERRO":   logger.error(msg)
+    elif nivel == "AVISO": logger.warning(msg)
+    else:                  logger.info(msg)
 
 # ─── VERIFICAÇÃO ─────────────────────────────────────────
 
@@ -100,7 +105,7 @@ def verificar_deps():
 def obter_info_video(caminho):
     cmd = ["ffprobe","-v","quiet","-print_format","json",
            "-show_streams","-show_format", str(caminho)]
-    res  = subprocess.run(cmd, capture_output=True, text=True)
+    res  = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     dados = json.loads(res.stdout)
     info  = {"duracao":0,"largura":0,"altura":0,"fps":30,"tem_audio":False}
     for s in dados.get("streams",[]):
@@ -166,7 +171,8 @@ TRANSCRIÇÃO:
 Responda SOMENTE com JSON puro, sem markdown, sem explicação:
 [{{"tipo":"denso","inicio":45.0,"fim":103.0,"titulo":"Título impactante","gancho":"Frase exata dos 3s iniciais","motivo":"Por que vai viralizar"}}]"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=4096,
         messages=[{"role":"user","content":prompt}]
     )
@@ -201,7 +207,8 @@ Tipo: {corte.get('tipo','denso')}
 Responda SOMENTE com JSON puro, sem markdown:
 {{"titulo_yt":"Título com emoji (máx 80 chars)","titulo_tiktok":"Título TikTok chamativo (máx 60 chars)","descricao":"3-4 linhas com CTA para seguir o canal","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=500,
         messages=[{"role":"user","content":prompt}]
     )
@@ -238,7 +245,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
                "-i",str(caminho_video),"-c","copy",
                "-avoid_negative_ts","make_zero", str(dest)]
 
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -341,7 +348,7 @@ def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
             str(caminho_out)
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0
@@ -373,7 +380,7 @@ def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
             txt_saida.write_text(conteudo, encoding="utf-8")
             log(f"📝 {txt_saida.name}")
 
-    return caminho_out, (txt_saida if desc_info else None), custo_desc
+    return caminho_out, (txt_saida if desc_info else None), custo_desc, desc_info
 
 # ─── PIPELINE PRINCIPAL ───────────────────────────────────
 
@@ -487,7 +494,7 @@ def pipeline(caminho_video, forcar=False):
     custo_desc_total = 0.0
 
     for i, arq in enumerate(arquivos_cortados, 1):
-        video_out, txt_out, custo_desc = processar_corte(
+        video_out, txt_out, custo_desc, desc_info_atual = processar_corte(
             arq, segmentos, PASTA_PRONTOS, titulo
         )
         custo_desc_total += custo_desc
@@ -500,7 +507,7 @@ def pipeline(caminho_video, forcar=False):
                     corte_info=arq["corte"],
                     caminho_video=video_out,
                     caminho_txt=txt_out,
-                    desc_info=None
+                    desc_info=desc_info_atual
                 )
                 log(f"Corte {i} registrado no banco (ID: {corte_id})", "DB")
 
@@ -517,6 +524,12 @@ def pipeline(caminho_video, forcar=False):
         s = banco.stats()
         print(f"  🗄️  Banco: {s['total_videos']} vídeos | {s['total_cortes']} cortes | {s['postados']} postados")
     print("═"*58 + "\n")
+    notificar.pipeline_concluido(
+        origem="Processar Vídeo → Shorts",
+        total=len(cortes_validos),
+        sucesso=len(prontos),
+        custo_usd=custo_cortes + custo_desc_total
+    )
 
     if prontos:
         print("Arquivos prontos para postar no TikTok e YouTube Shorts:\n")
@@ -565,8 +578,12 @@ def main():
                         help="Reprocessa mesmo se já estiver no banco")
     args = parser.parse_args()
 
-    if args.chave:  CHAVE_ANTHROPIC = args.chave
-    if args.modelo: MODELO_WHISPER  = args.modelo
+    if args.chave:
+        cfg.chave_anthropic = args.chave
+        CHAVE_ANTHROPIC = args.chave
+    if args.modelo:
+        cfg.modelo_whisper = args.modelo
+        MODELO_WHISPER = args.modelo
 
     if args.pasta:
         processar_pasta(args.pasta, forcar=args.forcar)

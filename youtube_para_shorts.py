@@ -21,35 +21,34 @@
 import os, sys, json, re, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
+from logger_setup import get_logger
+from retry import chamar_anthropic
+from telegram import notificar
+
+logger = get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════
-#  CONFIGURAÇÕES — edite aqui antes de usar
+#  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
-CHAVE_ANTHROPIC = os.getenv("ANTHROPIC_API_KEY", "")  # ou cole: "sk-ant-..."
-MODELO_CLAUDE   = "claude-sonnet-4-6"
+from config import cfg
 
-PASTA_DOWNLOADS = "downloads"
-PASTA_CORTES    = "cortes"
-PASTA_PRONTOS   = "output"
-
-NOME_CANAL      = "@SeuCanal"
-COR_LEGENDA     = "white"          # white | yellow | cyan
-TAMANHO_FONT    = 20
-QUALIDADE_CRF   = 22
-VELOCIDADE_ENC  = "medium"
-PITCH_VALOR     = "1.02"
-
-MODELO_WHISPER  = "base"           # tiny | base | small | medium | large
-IDIOMA          = "pt"             # pt | en | auto
-
-DURACAO_DENSA_MIN   = 50
-DURACAO_DENSA_MAX   = 59           # máximo Shorts = 59s
-DURACAO_IMPACTO_MIN = 30
-DURACAO_IMPACTO_MAX = 45
-DURACAO_GLOBAL_MIN  = 30
-DURACAO_GLOBAL_MAX  = 59
-
-GERAR_DESCRICAO = True
+# Atalhos para compatibilidade
+CHAVE_ANTHROPIC     = cfg.chave_anthropic
+MODELO_CLAUDE       = cfg.modelo_claude
+PASTA_DOWNLOADS     = str(cfg.pasta_downloads)
+PASTA_CORTES        = str(cfg.pasta_cortes)
+PASTA_PRONTOS       = str(cfg.pasta_prontos)
+NOME_CANAL          = cfg.nome_canal
+COR_LEGENDA         = cfg.cor_legenda
+TAMANHO_FONT        = cfg.tamanho_font
+QUALIDADE_CRF       = cfg.qualidade_crf
+VELOCIDADE_ENC      = cfg.velocidade_enc
+PITCH_VALOR         = cfg.pitch_valor
+MODELO_WHISPER      = cfg.modelo_whisper
+IDIOMA              = cfg.idioma
+DURACAO_GLOBAL_MIN  = cfg.duracao_global_min
+DURACAO_GLOBAL_MAX  = cfg.duracao_global_max
+GERAR_DESCRICAO     = True
 # ═══════════════════════════════════════════════════════
 
 CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
@@ -193,7 +192,8 @@ Tipo: {corte.get('tipo','denso')}
 Responda SOMENTE com JSON puro:
 {{"titulo_yt":"Título com emoji (máx 80 chars)","descricao":"3-4 linhas com CTA para seguir","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8"]}}"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=400,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -228,7 +228,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
 
         cmd = ["ffmpeg","-y","-ss",str(inicio),"-to",str(fim),"-i",str(caminho_video),
                "-c","copy","-avoid_negative_ts","make_zero",str(dest)]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -320,7 +320,7 @@ def processar_para_shorts(arquivo_corte, segmentos, pasta_saida, titulo_video):
             str(caminho_out)
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0
@@ -345,7 +345,7 @@ def processar_para_shorts(arquivo_corte, segmentos, pasta_saida, titulo_video):
             txt_saida.write_text(conteudo, encoding="utf-8")
             log(f"📝 {txt_saida.name}")
 
-    return caminho_out, (txt_saida if desc_info else None), custo_desc
+    return caminho_out, (txt_saida if desc_info else None), custo_desc, desc_info
 
 # ─── PIPELINE PRINCIPAL ───────────────────────────────────
 
@@ -442,7 +442,7 @@ def pipeline(url, forcar=False):
     custo_desc_total = 0.0
 
     for i, arq in enumerate(arquivos_cortados, 1):
-        video_out, txt_out, custo_desc = processar_para_shorts(
+        video_out, txt_out, custo_desc, desc_info_atual = processar_para_shorts(
             arq, segmentos, PASTA_PRONTOS, titulo
         )
         custo_desc_total += custo_desc
@@ -453,17 +453,13 @@ def pipeline(url, forcar=False):
             # Registrar corte no banco
             if usar_banco and video_id:
                 corte_info = arq["corte"]
-                # Ler desc_info do txt se gerado
-                desc_info = None
-                if txt_out and txt_out.exists():
-                    pass  # desc_info já foi salva no arquivo, registrar campos básicos
                 corte_id = banco.registrar_corte(
                     video_id    = video_id,
                     numero      = i,
                     corte_info  = corte_info,
                     caminho_video = video_out,
                     caminho_txt   = txt_out,
-                    desc_info     = None
+                    desc_info     = desc_info_atual
                 )
                 log(f"Corte registrado no banco (ID: {corte_id})", "DB")
 
@@ -480,6 +476,12 @@ def pipeline(url, forcar=False):
         s = banco.stats()
         print(f"  🗄️  Banco: {s['total_videos']} vídeos | {s['total_cortes']} cortes totais | {s['postados']} postados")
     print("═"*58 + "\n")
+    notificar.pipeline_concluido(
+        origem="YouTube → Shorts",
+        total=len(cortes_validos),
+        sucesso=len(prontos),
+        custo_usd=custo_cortes + custo_desc_total
+    )
 
     if prontos:
         print("Shorts prontos para publicar:\n")
@@ -494,8 +496,7 @@ def pipeline(url, forcar=False):
 # ─── ENTRADA ──────────────────────────────────────────────
 
 def main():
-    global CHAVE_ANTHROPIC, MODELO_WHISPER
-
+    # FIX: usar cfg em vez de globals mutáveis
     parser = argparse.ArgumentParser(
         description="YouTube → Shorts com IA + Banco de histórico"
     )
@@ -507,8 +508,8 @@ def main():
                         help="Reprocessa mesmo se o vídeo já estiver no banco")
     args = parser.parse_args()
 
-    if args.chave:   CHAVE_ANTHROPIC = args.chave
-    if args.modelo:  MODELO_WHISPER  = args.modelo
+    if args.chave:   cfg.chave_anthropic = args.chave
+    if args.modelo:  cfg.modelo_whisper  = args.modelo
 
     url = args.url
     if not url:

@@ -1,0 +1,26 @@
+# Credenciais — NUNCA versionar
+.env
+token.json
+credentials.json
+
+# Banco de dados
+banco_shorts.db
+banco_shorts.db-wal
+banco_shorts.db-shm
+
+# Pastas geradas automaticamente
+downloads/
+cortes/
+temp_audio/
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+logs/
+
+# Vídeos de saída (opcionais — podem ser grandes)
+# output/
+
+# Token TikTok
+token_tiktok.json

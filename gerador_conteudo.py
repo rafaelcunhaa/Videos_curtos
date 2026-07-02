@@ -35,48 +35,60 @@
 import os, sys, json, re, random, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
+from logger_setup import get_logger
+from retry import chamar_anthropic, chamar_elevenlabs
+from telegram import notificar
+try:
+    from analytics import obter_config_otimizada
+    _config_otimizada = obter_config_otimizada()
+except Exception:
+    _config_otimizada = {}
+
+logger = get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════
-#  CONFIGURAÇÕES
+#  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
-CHAVE_ANTHROPIC  = os.getenv("ANTHROPIC_API_KEY", "")
-CHAVE_ELEVENLABS = os.getenv("ELEVENLABS_API_KEY", "")  # opcional — usa gTTS se vazio
-MODELO_CLAUDE    = "claude-sonnet-4-6"
+from config import cfg
 
-PASTA_FUNDOS     = "fundos"        # vídeos de fundo (natureza, céu, etc.)
-PASTA_MUSICAS    = "musicas"       # músicas instrumentais de fundo
-PASTA_PRONTOS    = "output"
-PASTA_AUDIO_TEMP = "temp_audio"
-
-NOME_CANAL       = "@SeuCanal"
-COR_LEGENDA      = "white"
+CHAVE_ANTHROPIC  = cfg.chave_anthropic
+CHAVE_ELEVENLABS = cfg.chave_elevenlabs
+MODELO_CLAUDE    = cfg.modelo_claude
+PASTA_FUNDOS     = str(cfg.pasta_fundos)
+PASTA_MUSICAS    = str(cfg.pasta_musicas)
+PASTA_PRONTOS    = str(cfg.pasta_prontos)
+PASTA_AUDIO_TEMP = str(cfg.pasta_audio_temp)
+NOME_CANAL       = cfg.nome_canal
+COR_LEGENDA      = cfg.cor_legenda
 TAMANHO_FONT     = 22
-QUALIDADE_CRF    = 22
-VELOCIDADE_ENC   = "medium"
-PITCH_VALOR      = "1.02"
-
-# ── Durações alvo por formato ──────────────────────────
-# A IA vai gerar roteiros com tamanho calculado para atingir estas durações
-DURACAO_REFLEXAO  = (75, 90)   # segundos — acima de 60s para RPM máximo
-DURACAO_HISTORIA  = (70, 85)   # segundos — acima de 60s para RPM máximo
-DURACAO_VERSICULO = (60, 65)   # segundos — exatamente no limite de monetização
-VOLUME_MUSICA     = 0.15       # volume da música de fundo (0.0 a 1.0)
-
-# ── Voz ElevenLabs ────────────────────────────────────
-VOZ_ELEVENLABS_ID = "pNInz6obpgDQGcFmaJgB"  # voz masculina PT-BR padrão
-                                              # troque pelo ID da voz que preferir
-
-# ── Distribuição padrão por dia ───────────────────────
-FORMATOS_DO_DIA = [
-    "reflexao",   # 75–90s ← longo
-    "historia",   # 70–85s ← longo
-    "versiculo",  # 60–65s ← médio
-]
+QUALIDADE_CRF    = cfg.qualidade_crf
+VELOCIDADE_ENC   = cfg.velocidade_enc
+PITCH_VALOR      = cfg.pitch_valor
+DURACAO_REFLEXAO  = cfg.duracao_reflexao
+DURACAO_HISTORIA  = cfg.duracao_historia
+DURACAO_VERSICULO = cfg.duracao_versiculo
+VOLUME_MUSICA     = cfg.volume_musica
+VOZ_ELEVENLABS_ID = cfg.voz_elevenlabs_id
+FORMATOS_DO_DIA   = ["reflexao", "historia", "versiculo"]
 # ═══════════════════════════════════════════════════════
 
 CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
 
 # Temas rotativos para variar o conteúdo
+def _proximo_tema(tipo: str, lista: list) -> str:
+    """
+    Seleciona o próximo tema não usado recentemente via banco.
+    Garante diversidade de conteúdo — nunca repete antes de esgotar o ciclo.
+    """
+    try:
+        import banco as _banco
+        _banco.inicializar()
+        return _banco.proximo_tema_disponivel(tipo, lista)
+    except Exception:
+        # Fallback seguro se banco não disponível
+        return random.choice(lista)
+
+
 TEMAS_REFLEXAO = [
     "fé nos momentos difíceis", "propósito de vida", "gratidão e bênçãos",
     "superação pelo poder de Deus", "paz interior e ansiedade", "amor ao próximo",
@@ -109,6 +121,9 @@ def log(msg, nivel="INFO"):
     hora = datetime.now().strftime("%H:%M:%S")
     p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","IA":"🤖","DB":"🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
+    if nivel == "ERRO":   logger.error(msg)
+    elif nivel == "AVISO": logger.warning(msg)
+    else:                  logger.info(msg)
 
 # ─── VERIFICAÇÃO ─────────────────────────────────────────
 
@@ -152,7 +167,12 @@ def calcular_palavras_alvo(duracao_min, duracao_max):
 def ia_gerar_reflexao(tema=None, duracao=None):
     import anthropic
     if not tema:
-        tema = random.choice(TEMAS_REFLEXAO)
+        # Priorizar temas recomendados pela análise de performance
+        temas_rec = _config_otimizada.get("temas_recomendados", [])
+        if temas_rec and random.random() < 0.6:  # 60% chance de usar recomendado
+            tema = _proximo_tema("reflexao", temas_rec + TEMAS_REFLEXAO)
+        else:
+            tema = _proximo_tema("reflexao", TEMAS_REFLEXAO)
     dur = duracao or DURACAO_REFLEXAO
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
@@ -174,7 +194,8 @@ REQUISITOS:
 Responda SOMENTE com JSON puro:
 {{"roteiro":"texto completo aqui","tema":"{tema}","versiculo_usado":"ref do versículo","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=2000,
         messages=[{"role":"user","content":prompt}]
     )
@@ -189,7 +210,11 @@ Responda SOMENTE com JSON puro:
 def ia_gerar_historia(tema=None, duracao=None):
     import anthropic
     if not tema:
-        tema = random.choice(TEMAS_HISTORIA)
+        temas_rec = _config_otimizada.get("temas_recomendados", [])
+        if temas_rec and random.random() < 0.6:
+            tema = _proximo_tema("historia", temas_rec + TEMAS_HISTORIA)
+        else:
+            tema = _proximo_tema("historia", TEMAS_HISTORIA)
     dur = duracao or DURACAO_HISTORIA
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
@@ -210,7 +235,8 @@ REQUISITOS:
 Responda SOMENTE com JSON puro:
 {{"roteiro":"texto completo aqui","tema":"{tema}","tipo":"bíblica ou santo","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=2000,
         messages=[{"role":"user","content":prompt}]
     )
@@ -225,7 +251,7 @@ Responda SOMENTE com JSON puro:
 def ia_gerar_versiculo(versiculo=None, duracao=None):
     import anthropic
     if not versiculo:
-        versiculo = random.choice(VERSICULOS_TEMA)
+        versiculo = _proximo_tema("versiculo", VERSICULOS_TEMA)
     dur = duracao or DURACAO_VERSICULO
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
@@ -245,7 +271,8 @@ REQUISITOS:
 Responda SOMENTE com JSON puro:
 {{"roteiro":"texto completo aqui","versiculo":"{versiculo}","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
-    resposta = cliente.messages.create(
+    resposta = chamar_anthropic(
+        cliente.messages.create,
         model=MODELO_CLAUDE, max_tokens=1500,
         messages=[{"role":"user","content":prompt}]
     )
@@ -279,7 +306,7 @@ def gerar_audio_elevenlabs(roteiro, caminho_saida):
             "use_speaker_boost": True
         }
     }
-    res = requests.post(url, headers=headers, json=body)
+    res = chamar_elevenlabs(requests.post, url, headers=headers, json=body)
     if res.status_code != 200:
         log(f"Erro ElevenLabs: {res.text[:200]}", "ERRO")
         return False
@@ -308,7 +335,7 @@ def gerar_audio(roteiro, caminho_saida):
 def obter_duracao_audio(caminho):
     cmd = ["ffprobe","-v","quiet","-show_entries","format=duration",
            "-of","json", str(caminho)]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     try:
         return float(json.loads(res.stdout)["format"]["duration"])
     except Exception:
@@ -474,7 +501,7 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
              str(saida_mp4)]
         )
 
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-300:]}", "ERRO")
@@ -585,7 +612,9 @@ def gerar_video(formato, tema=None, duracao=None):
 def gerar_videos_do_dia(formatos=None, quantidade=None):
     verificar_deps()
 
-    formatos_usar = formatos or FORMATOS_DO_DIA
+    # Usar distribuição otimizada pela análise de performance se disponível
+    formatos_otimizados = _config_otimizada.get("formatos_priorizados")
+    formatos_usar = formatos or formatos_otimizados or FORMATOS_DO_DIA
     if quantidade:
         # Repetir formatos até atingir quantidade
         formatos_usar = (formatos_usar * ((quantidade // len(formatos_usar)) + 1))[:quantidade]
@@ -630,6 +659,15 @@ def gerar_videos_do_dia(formatos=None, quantidade=None):
                 print(f"  📝 {t.name}")
             print()
 
+    # Notificar conclusão
+    custo_total_local = sum(
+        d.get("custo_usd", 0) for d in [{}]  # placeholder
+    )
+    notificar.pipeline_concluido(
+        origem="Gerador de Conteúdo",
+        total=len(formatos_usar),
+        sucesso=len(prontos),
+    )
     return prontos
 
 # ─── CLI ─────────────────────────────────────────────────

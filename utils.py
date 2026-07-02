@@ -67,6 +67,9 @@ def obter_info_video(caminho) -> dict:
                     n, d = fps_str.split("/")
                     info["fps"] = round(int(n) / int(d), 2)
                 except Exception:
+                    # fps_str em formato inesperado (ex: não é "N/D"): mantém
+                    # o default 30.0 já setado em info["fps"] antes do bloco.
+                    # Degradação para chute razoável, não perda de dado.
                     pass
             elif s.get("codec_type") == "audio":
                 info["tem_audio"] = True

@@ -1,0 +1,8 @@
+# URLs de podcasts para processar diariamente
+# Uma URL por linha
+# Linhas começando com # são ignoradas
+# Deixe vazio para pular esta etapa
+
+# Exemplo:
+# https://youtu.be/XXXXXXXXX
+# https://youtu.be/YYYYYYYYY

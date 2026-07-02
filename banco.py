@@ -98,6 +98,16 @@ def inicializar():
             CREATE INDEX IF NOT EXISTS idx_cortes_status ON cortes(status);
             CREATE INDEX IF NOT EXISTS idx_cortes_agend  ON cortes(agendado_para)
                 WHERE agendado_para IS NOT NULL;
+
+        -- Deduplicação de temas gerados
+        CREATE TABLE IF NOT EXISTS temas_usados (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo       TEXT NOT NULL,   -- reflexao | historia | versiculo
+            tema       TEXT NOT NULL,
+            usado_em   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            UNIQUE(tipo, tema)
+        );
+        CREATE INDEX IF NOT EXISTS idx_temas_tipo ON temas_usados(tipo);
         """)
     logger.info("Banco inicializado: %s", BANCO_ARQUIVO)
 
@@ -239,6 +249,11 @@ def listar_cortes(video_id: int | None = None,
         condicoes.append("c.status = ?")
         params.append(status)
 
+    # nosec B608 — 'condicoes' só recebe strings literais fixas do código-fonte
+    # (nunca dado externo); os valores reais (video_id, status) vão em 'params'
+    # e são passados como segundo argumento de conn.execute(), que é a API
+    # parametrizada do sqlite3. O f-string monta apenas a cláusula WHERE com
+    # placeholders '?' — nenhum valor de usuário é interpolado direto na string.
     query = f"""
         SELECT c.*, v.titulo AS titulo_video, v.youtube_id
         FROM cortes c
@@ -311,6 +326,55 @@ def stats() -> dict:
 
 # ─── CLI ─────────────────────────────────────────────────
 
+# ─── DEDUPLICAÇÃO DE TEMAS ──────────────────────────────
+
+def registrar_tema_usado(tipo: str, tema: str) -> None:
+    """Registra um tema como usado para evitar repetição futura."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO temas_usados (tipo, tema) VALUES (?, ?)",
+            (tipo, tema)
+        )
+
+def temas_ja_usados(tipo: str) -> set[str]:
+    """Retorna conjunto de temas já usados para um tipo."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT tema FROM temas_usados WHERE tipo = ?", (tipo,)
+        ).fetchall()
+    return {r["tema"] for r in rows}
+
+def proximo_tema_disponivel(tipo: str, todos_os_temas: list[str]) -> str:
+    """
+    Retorna o próximo tema não usado.
+    Se todos já foram usados, reseta o ciclo e recomeça.
+    """
+    import random
+    usados = temas_ja_usados(tipo)
+    disponiveis = [t for t in todos_os_temas if t not in usados]
+
+    if not disponiveis:
+        # Todos usados — resetar ciclo
+        logger.info("Todos os temas '%s' já foram usados — reiniciando ciclo", tipo)
+        with get_conn() as conn:
+            conn.execute("DELETE FROM temas_usados WHERE tipo = ?", (tipo,))
+        disponiveis = todos_os_temas[:]
+
+    escolhido = random.choice(disponiveis)
+    registrar_tema_usado(tipo, escolhido)
+    return escolhido
+
+def stats_temas() -> dict:
+    """Retorna quantos temas já foram usados por tipo."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT tipo, COUNT(*) as total
+            FROM temas_usados
+            GROUP BY tipo
+        """).fetchall()
+    return {r["tipo"]: r["total"] for r in rows}
+
+
 def _print_videos(videos: list[dict]) -> None:
     if not videos:
         print("  Nenhum vídeo registrado.")
@@ -341,6 +405,8 @@ def main_cli() -> None:
     parser.add_argument("--listar-prontos", action="store_true")
     parser.add_argument("--stats",          action="store_true")
     parser.add_argument("--resetar",        metavar="URL_OU_ID")
+    parser.add_argument("--temas",          action="store_true",
+                        help="Mostra quantos temas já foram usados por tipo")
     args = parser.parse_args()
 
     if args.listar:
@@ -370,6 +436,15 @@ def main_cli() -> None:
     elif args.resetar:
         resetar_video(args.resetar)
         print(f"✓ Vídeo resetado: {args.resetar}")
+
+    elif args.temas:
+        s = stats_temas()
+        print("\n📋 TEMAS JÁ USADOS\n")
+        for tipo, total in s.items():
+            print(f"   {tipo:<12}: {total} temas usados")
+        if not s:
+            print("   Nenhum tema registrado ainda.")
+        print()
 
     else:
         parser.print_help()
