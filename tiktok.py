@@ -230,12 +230,16 @@ class TikTokClient:
             h if h.startswith("#") else f"#{h}"
             for h in hashtags
         )
-        caption = f"{titulo}\n\n{tags_str}".strip()[:2200]
+        caption = f"""{titulo}
+
+        {descricao}
+
+        {tags_str}""".strip()[:2200]
 
         sync_playwright = _get_playwright()
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True,   # headless em produção
+                headless=False,   # headless em produção
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             context = browser.new_context(

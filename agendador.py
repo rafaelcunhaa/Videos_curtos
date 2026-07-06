@@ -32,6 +32,7 @@
 =======================================================
 """
 
+import re
 import os, sys, json, time, argparse, schedule
 from typing import Optional
 from pathlib import Path
@@ -237,16 +238,31 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
     # Ler título e hashtags do .txt se existir
     titulo   = corte.get("titulo_tiktok") or corte.get("titulo_yt") or corte.get("titulo","Short")
     hashtags = []
+    descricao = ""
 
-    caminho_txt = corte.get("caminho_txt")
-    if caminho_txt and Path(caminho_txt).exists():
-        conteudo = Path(caminho_txt).read_text(encoding="utf-8")
-        partes   = conteudo.split("\n\n")
-        for parte in partes:
-            if parte.startswith("TÍTULO:\n") and "TIKTOK" in conteudo[:conteudo.find(parte)]:
-                titulo = parte.replace("TÍTULO:\n","").strip()[:60]
-            elif parte.startswith("HASHTAGS:\n"):
-                hashtags = parte.replace("HASHTAGS:\n","").strip().split()
+    conteudo = Path(caminho_txt).read_text(encoding="utf-8")
+
+    # Parte do TikTok
+    m = re.search(
+        r"==== TIKTOK ====(.*?)==== INFO ====",
+        conteudo,
+        re.S
+    )
+
+    if m:
+        bloco = m.group(1)
+
+        mt = re.search(r"TÍTULO:\s*(.*?)\n\n", bloco, re.S)
+        if mt:
+            titulo = mt.group(1).strip()
+
+        md = re.search(r"DESCRIÇÃO:\s*(.*?)\n\n", bloco, re.S)
+        if md:
+            descricao = md.group(1).strip()
+
+        mh = re.search(r"HASHTAGS:\s*(.*)", bloco, re.S)
+        if mh:
+            hashtags = mh.group(1).split()
 
     log(f"TikTok: postando '{titulo[:40]}...'", "YT")
 
@@ -254,6 +270,7 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
         video_id = tiktok_client.postar(
             caminho_video=caminho_video,
             titulo=titulo,
+            descricao=descricao,
             hashtags=hashtags[:10],
         )
         if video_id:
