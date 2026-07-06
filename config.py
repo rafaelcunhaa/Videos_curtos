@@ -34,7 +34,7 @@ class Config:
     pasta_logs:       Path = Path("logs")
 
     # ── Canal ─────────────────────────────────────────
-    nome_canal:       str  = "@SeuCanal"
+    nome_canal:       str  = "@BoomVibes6"
     cor_legenda:      str  = "white"
     tamanho_font:     int  = 20
     qualidade_crf:    int  = 22

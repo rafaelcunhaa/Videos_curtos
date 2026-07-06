@@ -306,7 +306,7 @@ def _buscar_pixabay_musica(query: str, por_pagina: int = 10) -> list[dict]:
 
     try:
         resp = requests.get(
-            "https://pixabay.com/api/music/",
+            "https://pixabay.com/music/",
             params={
                 "key":      PIXABAY_API_KEY,
                 "q":        query,
