@@ -9,8 +9,13 @@ banco_shorts.db-wal
 banco_shorts.db-shm
 
 # Pastas geradas automaticamente
-downloads/
+tiktok_session/
+.cache_fundos/
+output/
 cortes/
+fundos/
+musicas/
+downloads/
 temp_audio/
 __pycache__/
 *.pyc

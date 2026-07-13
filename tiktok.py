@@ -89,7 +89,7 @@ def fazer_login() -> bool:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,   # mostra o navegador para o usuário fazer login
+            headless=True,   # mostra o navegador para o usuário fazer login
             args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
         )
         context = browser.new_context(
@@ -239,7 +239,7 @@ class TikTokClient:
         sync_playwright = _get_playwright()
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=False,   # headless em produção
+                headless=True,   # headless em produção
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             context = browser.new_context(
@@ -274,15 +274,29 @@ class TikTokClient:
                 # ── 2. Upload do arquivo ─────────────────────────
                 log("Fazendo upload do arquivo...", "PROC")
 
-                # Aguardar o input de arquivo aparecer
+                # Upload do vídeo
                 file_input = page.locator("input[type='file']").first
                 file_input.set_input_files(str(caminho_video.resolve()))
 
                 # Aguardar processamento do vídeo pelo TikTok
                 log("Aguardando processamento do vídeo...", "PROC")
                 page.wait_for_timeout(5000)
+
+
+
+                # Fechar popups conhecidos
+                for texto in ["Skip","Close","Cancel","Dismiss","Got it","OK","Okay","Entendi","Fechar","Agora não","Not now"]:
+                    try:
+                        page.get_by_role("button", name=texto).click(timeout=1000)
+                        page.wait_for_timeout(500)
+                        break
+                    except:
+                        pass
+
+                # Fechar popup "Novos recursos de edição"
                 try:
-                    page.locator("button:has-text('Cancel')").click(timeout=5000)
+                    page.get_by_role("button", name="Entendi").click(timeout=5000)
+                    page.wait_for_timeout(1000)
                 except:
                     pass
 
@@ -295,13 +309,29 @@ class TikTokClient:
                         timeout=TIMEOUT_UPLOAD
                     )
                 except Exception:
-                    # Alguns temas de UI não têm esse seletor exato —
-                    # aguardar um tempo fixo como fallback
-                    page.wait_for_timeout(15000)
+                    # Alguns layouts não possuem esses seletores
+                    for _ in range(120):
+
+                        try:
+                            if page.locator("div[contenteditable='true']").count() > 0:
+                                break
+                        except:
+                            pass
+
+                        page.wait_for_timeout(1000)
+
+                # Fechar popup novamente, caso ele apareça após o processamento
+                for texto in ["Skip","Close","Cancel","Dismiss","Got it","OK","Okay","Entendi","Fechar","Agora não","Not now"]:
+                    try:
+                        page.get_by_role("button", name=texto).click(timeout=2000)
+                        page.wait_for_timeout(500)
+                        break
+                    except:
+                        pass
 
                 # ── 3. Preencher caption ─────────────────────────
                 log("Preenchendo legenda e hashtags...", "PROC")
-
+                log("Procurando campo da descrição...", "PROC")
                 # Tentar encontrar o campo de caption
                 caption_selectors = [
                     "[data-e2e='caption-input']",
@@ -314,10 +344,12 @@ class TikTokClient:
                 caption_field = None
                 for selector in caption_selectors:
                     try:
+                        log(f"Tentando: {selector}", "PROC")
                         caption_field = page.wait_for_selector(
                             selector, timeout=5000
                         )
                         if caption_field:
+                            log("Campo encontrado!", "PROC")
                             break
                     except Exception:
                         # Seletor CSS não encontrado neste layout —
@@ -325,9 +357,33 @@ class TikTokClient:
                         continue
 
                 if caption_field:
-                    caption_field.click()
-                    caption_field.fill("")
-                    page.keyboard.type(caption)
+                    # Fecha popups do TikTok
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(500)
+                    except:
+                        pass
+
+                    try:
+                        while page.locator("[data-test-id='overlay']").count() > 0:
+                            page.keyboard.press("Escape")
+                            page.wait_for_timeout(500)
+                    except Exception:
+                        pass
+                    log("Clicando no campo...", "PROC")
+                    try:
+                        caption_field.click(timeout=5000)
+                    except:
+                        page.evaluate("(el) => el.click()", caption_field)
+                    page.keyboard.press("Control+A")
+                    page.wait_for_timeout(300)
+                    log("Limpando campo...", "PROC")
+                    page.keyboard.press("Backspace")
+                    page.wait_for_timeout(300)
+                    log("Digitando legenda...", "PROC")
+                    page.keyboard.insert_text(caption)
+                    page.wait_for_timeout(1000)
+                    log("Legenda preenchida!", "PROC")
                     page.wait_for_timeout(1000)
                 else:
                     log("Campo de caption não encontrado — postando sem texto", "AVISO")
@@ -409,6 +465,8 @@ class TikTokClient:
                     shot_path = SESSION_DIR / f"erro_{int(time.time())}.png"
                     page.screenshot(path=str(shot_path))
                     log(f"Screenshot salvo: {shot_path}", "AVISO")
+                    html_path = SESSION_DIR / f"erro_{int(time.time())}.html"
+                    html_path.write_text(page.content(), encoding="utf-8")
                 except Exception as e:
                     # Falha ao salvar screenshot é secundária ao erro original
                     # que já foi logado acima — não ofuscar com nova exceção
@@ -467,6 +525,29 @@ def main():
                         help="Instalar o navegador Chromium (necessário uma vez)")
     args = parser.parse_args()
 
+    txt = Path(args.postar).with_suffix(".txt")
+
+    if txt.exists():
+        conteudo = txt.read_text(encoding="utf-8")
+
+        # Pega apenas a seção do TikTok
+        parte = conteudo.split("=== TIKTOK ===")[1].split("=== INFO ===")[0]
+
+        # Extrai título
+        titulo = parte.split("TÍTULO:")[1].split("DESCRIÇÃO:")[0].strip()
+
+        # Extrai descrição
+        descricao = parte.split("DESCRIÇÃO:")[1].split("HASHTAGS:")[0].strip()
+
+        # Extrai hashtags
+        hashtags = parte.split("HASHTAGS:")[1].strip().split()
+
+        # Monta a legenda final
+        titulo = f"{titulo}\n\n{descricao}\n\n{' '.join(hashtags)}"
+
+    else:
+        titulo = args.titulo or Path(args.postar).stem
+
     # Setup logging
     try:
         from logger_setup import get_logger
@@ -498,10 +579,11 @@ def main():
     elif args.testar:
         tiktok.testar()
 
+
     elif args.postar:
         ref = tiktok.postar(
             caminho_video=args.postar,
-            titulo=args.titulo or Path(args.postar).stem,
+            titulo=titulo,
             privacidade=args.privacidade,
         )
         if not ref:

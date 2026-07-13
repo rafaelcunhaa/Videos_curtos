@@ -41,7 +41,7 @@ def obter_duracao(caminho) -> float:
             "-show_entries", "format=duration",
             "-of", "json", str(caminho)
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         if res.returncode == 0:
             return float(json.loads(res.stdout)["format"]["duration"])
     except Exception as e:
@@ -56,7 +56,7 @@ def obter_info_video(caminho) -> dict:
             "ffprobe", "-v", "quiet", "-print_format", "json",
             "-show_streams", "-show_format", str(caminho)
         ]
-        res  = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         dados = json.loads(res.stdout)
         for s in dados.get("streams", []):
             if s.get("codec_type") == "video":

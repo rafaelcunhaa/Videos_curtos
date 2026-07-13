@@ -228,7 +228,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
 
         cmd = ["ffmpeg","-y","-ss",str(inicio),"-to",str(fim),"-i",str(caminho_video),
                "-c","copy","-avoid_negative_ts","make_zero",str(dest)]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -320,7 +320,7 @@ def processar_para_shorts(arquivo_corte, segmentos, pasta_saida, titulo_video):
             str(caminho_out)
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0
@@ -453,6 +453,7 @@ def pipeline(url, forcar=False):
             # Registrar corte no banco
             if usar_banco and video_id:
                 corte_info = arq["corte"]
+                corte_info["categoria"] = "podcast"
                 corte_id = banco.registrar_corte(
                     video_id    = video_id,
                     numero      = i,

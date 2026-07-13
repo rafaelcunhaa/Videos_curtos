@@ -54,11 +54,15 @@ class Config:
     duracao_versiculo:   tuple = (60, 65)
 
     # ── Agendador ─────────────────────────────────────
-    horarios_ideais:      list  = field(default_factory=lambda: ["07:00","12:00","18:00","21:00"])
+    horarios_ideais:      list  = field(default_factory=lambda: ["12:00","19:00"])
     intervalo_horas:      int   = 3
     privacidade_padrao:   str   = "public"
     categoria_id:         str   = "22"
     daemon_intervalo_min: int   = 5
+    # Distribuição da fila
+    proporcao_ia:         int   = 3
+    proporcao_podcast:    int   = 1
+
     voz_elevenlabs_id:    str   = "pNInz6obpgDQGcFmaJgB"
 
     def __post_init__(self):

@@ -326,7 +326,7 @@ def instalar_cron() -> None:
         # Ler crontab atual
         res = subprocess.run(
             ["crontab", "-l"],
-            capture_output=True, text=True
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         crontab_atual = res.stdout if res.returncode == 0 else ""
 
@@ -342,7 +342,7 @@ def instalar_cron() -> None:
         proc = subprocess.run(
             ["crontab", "-"],
             input=novo_crontab,
-            capture_output=True, text=True
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         if proc.returncode == 0:
             log(f"✅ Cron instalado com sucesso!")
@@ -369,7 +369,7 @@ def _instalar_task_scheduler() -> None:
         "/st", f"{CRON_HORA:02d}:{CRON_MINUTO:02d}",
         "/rl", "HIGHEST",
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if res.returncode == 0:
         log(f"✅ Tarefa '{nome}' instalada no Windows Task Scheduler!")
         log(f"   Rodará todo dia às {CRON_HORA:02d}:{CRON_MINUTO:02d}h")
@@ -385,7 +385,7 @@ def remover_cron() -> None:
         nome = "PipelineDiarioShorts"
         res  = subprocess.run(
             ["schtasks", "/delete", "/f", "/tn", nome],
-            capture_output=True, text=True
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         if res.returncode == 0:
             log(f"✅ Tarefa '{nome}' removida do Task Scheduler")
@@ -395,7 +395,7 @@ def remover_cron() -> None:
 
     script_path = str(Path(__file__).resolve())
     try:
-        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if res.returncode != 0 or script_path not in res.stdout:
             log("Cron não estava instalado")
             return
@@ -404,7 +404,7 @@ def remover_cron() -> None:
             if script_path not in l
         ]
         novo = "\n".join(linhas_filtradas) + "\n"
-        subprocess.run(["crontab", "-"], input=novo, capture_output=True, text=True)
+        subprocess.run(["crontab", "-"], input=novo, capture_output=True, text=True, encoding="utf-8", errors="replace")
         log("✅ Cron removido com sucesso")
     except FileNotFoundError:
         log("'crontab' não encontrado", "ERRO")
@@ -412,7 +412,7 @@ def remover_cron() -> None:
 
 def _mostrar_cron_atual() -> None:
     try:
-        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         script_path = str(Path(__file__).resolve())
         for linha in res.stdout.splitlines():
             if script_path in linha:
@@ -438,12 +438,12 @@ def mostrar_status() -> None:
         nome = "PipelineDiarioShorts"
         res  = subprocess.run(
             ["schtasks", "/query", "/tn", nome],
-            capture_output=True, text=True
+            capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         instalado = res.returncode == 0
     else:
         try:
-            res       = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            res       = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace")
             script    = str(Path(__file__).resolve())
             instalado = script in res.stdout
         except Exception:

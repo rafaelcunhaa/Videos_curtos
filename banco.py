@@ -8,9 +8,11 @@
     python banco.py --listar-cortes ID_DO_VIDEO
     python banco.py --stats
     python banco.py --resetar URL_OU_ID
+    python banco.py --temas
+    python banco.py --importar-output (importar vídeos existentes da pasta output para o banco)
 =======================================================
 """
-
+import subprocess
 import sqlite3
 import json
 import re
@@ -76,6 +78,7 @@ def inicializar():
                 numero           INTEGER,
                 tipo             TEXT    CHECK(tipo IN ('denso','impacto','reflexao','historia','versiculo') OR tipo IS NULL),
                 titulo           TEXT,
+                categoria        TEXT CHECK(categoria IN ('podcast','ia') OR categoria IS NULL),
                 gancho           TEXT,
                 inicio_s         REAL,
                 fim_s            REAL,
@@ -215,12 +218,13 @@ def registrar_corte(video_id: int, numero: int, corte_info: dict,
     with get_conn() as conn:
         conn.execute("""
             INSERT INTO cortes
-                (video_id, numero, tipo, titulo, gancho, inicio_s, fim_s, duracao_s,
+                (video_id, numero, tipo, categoria, titulo, gancho, inicio_s, fim_s, duracao_s,
                  caminho_video, caminho_txt, titulo_yt, descricao, hashtags, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pronto')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             video_id, numero,
             corte_info.get("tipo"),
+            corte_info.get("categoria"),
             corte_info.get("titulo"),
             corte_info.get("gancho"),
             float(inicio), float(fim), dur,
@@ -229,6 +233,7 @@ def registrar_corte(video_id: int, numero: int, corte_info: dict,
             desc_info.get("titulo_yt")  if desc_info else None,
             desc_info.get("descricao")  if desc_info else None,
             hashtags,
+            "pronto"
         ))
         conn.execute(
             "UPDATE videos SET num_cortes = num_cortes + 1, atualizado_em = datetime('now','localtime') WHERE id = ?",
@@ -292,6 +297,23 @@ def agendar_corte(corte_id: int, data_hora_iso: str) -> None:
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
             (data_hora_iso, corte_id)
         )
+
+def limpar_agendamentos() -> int:
+    """
+    Remove todos os agendamentos futuros.
+    Não altera vídeos já postados.
+    Retorna quantos cortes foram resetados.
+    """
+    with get_conn() as conn:
+
+        cur = conn.execute("""
+            UPDATE cortes
+               SET status='pronto',
+                   agendado_para=NULL
+             WHERE status='agendado'
+        """)
+
+        return cur.rowcount
 
 def cortes_pendentes_agendamento() -> list[dict]:
     """Retorna cortes agendados cuja hora já passou."""
@@ -374,6 +396,188 @@ def stats_temas() -> dict:
         """).fetchall()
     return {r["tipo"]: r["total"] for r in rows}
 
+def parse_txt(txt_path: Path) -> dict:
+    """
+    Lê o arquivo .txt do vídeo e extrai todas as informações.
+    """
+
+    texto = txt_path.read_text(encoding="utf-8", errors="ignore")
+
+    def extrair(bloco_inicio, proximo_bloco=None):
+        if bloco_inicio not in texto:
+            return ""
+
+        parte = texto.split(bloco_inicio, 1)[1]
+
+        if proximo_bloco and proximo_bloco in parte:
+            parte = parte.split(proximo_bloco, 1)[0]
+
+        return parte.strip()
+
+    titulo = extrair("TÍTULO:", "DESCRIÇÃO:")
+    descricao = extrair("DESCRIÇÃO:", "HASHTAGS:")
+    hashtags = extrair("HASHTAGS:", "=== TIKTOK ===")
+
+    formato = ""
+    tema = ""
+
+    if "=== INFO ===" in texto:
+
+        info = texto.split("=== INFO ===", 1)[1]
+
+        for linha in info.splitlines():
+
+            linha = linha.strip()
+
+            if linha.startswith("FORMATO:"):
+                formato = linha.replace("FORMATO:", "").strip().lower()
+
+            elif linha.startswith("TEMA:"):
+                tema = linha.replace("TEMA:", "").strip()
+
+    return {
+        "titulo": titulo,
+        "descricao": descricao,
+        "hashtags": hashtags.split(),
+        "formato": formato,
+        "tema": tema
+    }
+
+def detectar_tipo(nome: str) -> str:
+
+    nome = nome.lower()
+
+    if nome.startswith("reflexao"):
+        return "reflexao"
+
+    if nome.startswith("historia"):
+        return "historia"
+
+    if nome.startswith("versiculo"):
+        return "versiculo"
+
+    if "_impacto_" in nome:
+        return "impacto"
+
+    if "_denso_" in nome:
+        return "denso"
+
+    return "denso"
+
+def obter_duracao_video(video: Path) -> float:
+
+    try:
+
+        resultado = subprocess.run(
+
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(video),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        return float(resultado.stdout.strip())
+
+    except Exception:
+
+        return 0.0
+    
+def importar_video(video_path: Path):
+
+    txt = video_path.with_suffix(".txt")
+
+    if not txt.exists():
+        logger.warning("TXT não encontrado: %s", video_path.name)
+        return False
+
+    youtube_id = f"gerado_{video_path.stem}"
+
+    with get_conn() as conn:
+
+        existe = conn.execute(
+            "SELECT id FROM videos WHERE youtube_id=?",
+            (youtube_id,)
+        ).fetchone()
+
+    if existe:
+        logger.info("%s já está no banco.", video_path.name)
+        return False
+
+    info = parse_txt(txt)
+
+    duracao = obter_duracao_video(video_path)
+
+    video_id = registrar_video(
+        url=youtube_id,
+        titulo=info["titulo"],
+        duracao_s=duracao,
+        caminho_arquivo=video_path
+    )
+
+    registrar_corte(
+        video_id=video_id,
+        numero=1,
+        corte_info={
+            "tipo": detectar_tipo(video_path.name),
+            "categoria": "ia",
+            "titulo": info["titulo"],
+            "gancho": "",
+            "inicio": 0,
+            "fim": duracao
+        },
+        caminho_video=video_path,
+        caminho_txt=txt,
+        desc_info={
+            "titulo_yt": info["titulo"],
+            "descricao": info["descricao"],
+            "hashtags": info["hashtags"]
+        }
+    )
+
+    logger.info("Importado: %s", video_path.name)
+
+    return True
+
+def importar_output():
+
+    pasta = Path("output")
+
+    if not pasta.exists():
+        print("Pasta output não encontrada.")
+        return
+
+    videos = sorted(pasta.glob("*.mp4"))
+
+    total = 0
+    ignorados = 0
+
+    print("\n========== IMPORTAÇÃO ==========\n")
+
+    for video in videos:
+
+        try:
+
+            if importar_video(video):
+                total += 1
+            else:
+                ignorados += 1
+
+        except Exception as e:
+
+            logger.exception("Erro importando %s", video.name)
+
+    print("\n==============================")
+    print(f"Importados : {total}")
+    print(f"Ignorados  : {ignorados}")
+    print("==============================")
 
 def _print_videos(videos: list[dict]) -> None:
     if not videos:
@@ -407,6 +611,7 @@ def main_cli() -> None:
     parser.add_argument("--resetar",        metavar="URL_OU_ID")
     parser.add_argument("--temas",          action="store_true",
                         help="Mostra quantos temas já foram usados por tipo")
+    parser.add_argument("--importar-output",action="store_true",help="Importa vídeos existentes da pasta output para o banco.")
     args = parser.parse_args()
 
     if args.listar:
@@ -445,6 +650,9 @@ def main_cli() -> None:
         if not s:
             print("   Nenhum tema registrado ainda.")
         print()
+
+    elif args.importar_output:
+        importar_output()
 
     else:
         parser.print_help()

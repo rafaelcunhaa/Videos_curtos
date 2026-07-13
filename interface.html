@@ -1,1247 +1,1604 @@
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BoomVibes — Painel de Controle</title>
-    <style>
-    /* ── Tokens ─────────────────────────────────────────── */
-    :root {
-        --bg:        #0e0e11;
-        --bg2:       #16161b;
-        --bg3:       #1e1e25;
-        --border:    #2a2a35;
-        --gold:      #c9a84c;
-        --gold-dim:  #7a6330;
-        --gold-glow: rgba(201,168,76,0.12);
-        --text:      #e8e6e0;
-        --text2:     #8c8a84;
-        --text3:     #5a5854;
-        --green:     #4caf7d;
-        --red:       #e05252;
-        --blue:      #5b8dee;
-        --purple:    #9b6dde;
-        --radius:    10px;
-        --radius-sm: 6px;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        min-height: 100vh;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-
-    /* ── Barra de status viva (assinatura) ─────────────── */
-    #status-bar {
-        height: 3px;
-        background: var(--border);
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        z-index: 100;
-        overflow: hidden;
-    }
-    #status-bar .pulse {
-        height: 100%;
-        width: 40%;
-        background: linear-gradient(90deg, transparent, var(--gold), transparent);
-        animation: sweep 2.5s ease-in-out infinite;
-    }
-    @keyframes sweep {
-        0%   { transform: translateX(-100%); }
-        100% { transform: translateX(350%); }
-    }
-    #status-bar.idle .pulse { display: none; }
-
-    /* ── Layout ─────────────────────────────────────────── */
-    .shell {
-        display: grid;
-        grid-template-columns: 220px 1fr;
-        grid-template-rows: 56px 1fr;
-        min-height: 100vh;
-    }
-
-    /* ── Topo ───────────────────────────────────────────── */
-    header {
-        grid-column: 1 / -1;
-        display: flex;
-        align-items: center;
-        padding: 0 24px;
-        border-bottom: 1px solid var(--border);
-        gap: 12px;
-        margin-top: 3px;
-        background: var(--bg);
-    }
-    .logo {
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        color: var(--gold);
-    }
-    .logo span { color: var(--text2); font-weight: 400; font-size: 13px; }
-    .header-right {
-        margin-left: auto;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-    .dot {
-        width: 8px; height: 8px;
-        border-radius: 50%;
-        background: var(--green);
-        box-shadow: 0 0 6px var(--green);
-        animation: blink 2s ease-in-out infinite;
-    }
-    .dot.off { background: var(--text3); box-shadow: none; animation: none; }
-    @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: 0.4; }
-    }
-    .daemon-label { font-size: 12px; color: var(--text2); }
-
-    /* ── Sidebar ─────────────────────────────────────────── */
-    nav {
-        background: var(--bg2);
-        border-right: 1px solid var(--border);
-        padding: 20px 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-    .nav-section {
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.1em;
-        color: var(--text3);
-        text-transform: uppercase;
-        padding: 12px 20px 6px;
-    }
-    .nav-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 9px 20px;
-        color: var(--text2);
-        cursor: pointer;
-        border-radius: 0;
-        transition: all 0.15s;
-        font-size: 13.5px;
-        border-left: 2px solid transparent;
-    }
-    .nav-item:hover { background: var(--bg3); color: var(--text); }
-    .nav-item.active {
-        background: var(--gold-glow);
-        color: var(--gold);
-        border-left-color: var(--gold);
-    }
-    .nav-icon { font-size: 15px; width: 18px; text-align: center; }
-
-    /* ── Main ───────────────────────────────────────────── */
-    main {
-        padding: 28px 32px;
-        overflow-y: auto;
-        max-height: calc(100vh - 59px);
-    }
-
-    /* ── Páginas ─────────────────────────────────────────── */
-    .page { display: none; }
-    .page.active { display: block; }
-
-    .page-title {
-        font-size: 22px;
-        font-weight: 700;
-        letter-spacing: -0.4px;
-        margin-bottom: 6px;
-    }
-    .page-sub {
-        font-size: 13px;
-        color: var(--text2);
-        margin-bottom: 28px;
-    }
-
-    /* ── Cards de stat ───────────────────────────────────── */
-    .stats-row {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 14px;
-        margin-bottom: 28px;
-    }
-    .stat-card {
-        background: var(--bg2);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 18px 20px;
-    }
-    .stat-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
-    .stat-val { font-size: 28px; font-weight: 700; letter-spacing: -1px; color: var(--text); }
-    .stat-val.gold { color: var(--gold); }
-    .stat-val.green { color: var(--green); }
-    .stat-val.blue  { color: var(--blue);  }
-    .stat-sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
-
-    /* ── Grid 2 colunas ─────────────────────────────────── */
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
-    .full-col { margin-bottom: 18px; }
-
-    /* ── Painel ─────────────────────────────────────────── */
-    .panel {
-        background: var(--bg2);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        overflow: hidden;
-    }
-    .panel-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 14px 20px;
-        border-bottom: 1px solid var(--border);
-    }
-    .panel-title { font-size: 13px; font-weight: 600; }
-    .panel-body { padding: 16px 20px; }
-
-    /* ── Tabela ──────────────────────────────────────────── */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th {
-        text-align: left;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text3);
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        padding: 0 12px 10px;
-        border-bottom: 1px solid var(--border);
-    }
-    td { padding: 11px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: var(--bg3); }
-    td.title-cell { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    /* ── Badges ─────────────────────────────────────────── */
-    .badge {
-        display: inline-flex;
-        align-items: center;
-        font-size: 11px;
-        font-weight: 500;
-        padding: 3px 8px;
-        border-radius: 20px;
-        gap: 4px;
-    }
-    .badge-green  { background: rgba(76,175,125,0.15); color: var(--green); }
-    .badge-gold   { background: rgba(201,168,76,0.15); color: var(--gold); }
-    .badge-blue   { background: rgba(91,141,238,0.15); color: var(--blue); }
-    .badge-purple { background: rgba(155,109,222,0.15); color: var(--purple); }
-    .badge-gray   { background: var(--bg3); color: var(--text3); }
-    .badge-red    { background: rgba(224,82,82,0.15); color: var(--red); }
-
-    /* ── Botões ─────────────────────────────────────────── */
-    .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 8px 16px;
-        border-radius: var(--radius-sm);
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        border: none;
-        transition: all 0.15s;
-    }
-    .btn-primary {
-        background: var(--gold);
-        color: #000;
-    }
-    .btn-primary:hover { background: #d4b05a; }
-    .btn-ghost {
-        background: transparent;
-        color: var(--text2);
-        border: 1px solid var(--border);
-    }
-    .btn-ghost:hover { background: var(--bg3); color: var(--text); }
-    .btn-danger {
-        background: rgba(224,82,82,0.15);
-        color: var(--red);
-        border: 1px solid rgba(224,82,82,0.2);
-    }
-    .btn-sm { padding: 5px 10px; font-size: 12px; }
-
-    /* ── Inputs ─────────────────────────────────────────── */
-    .field { margin-bottom: 16px; }
-    .field label {
-        display: block;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text2);
-        margin-bottom: 6px;
-    }
-    input[type=text], input[type=url], input[type=number], select, textarea {
-        width: 100%;
-        background: var(--bg3);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        color: var(--text);
-        padding: 9px 12px;
-        font-size: 13px;
-        font-family: inherit;
-        outline: none;
-        transition: border-color 0.15s;
-    }
-    input:focus, select:focus, textarea:focus { border-color: var(--gold-dim); }
-    textarea { resize: vertical; min-height: 80px; }
-    select option { background: var(--bg2); }
-
-    /* ── Terminal / log ─────────────────────────────────── */
-    .terminal {
-        background: #0a0a0d;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 16px;
-        font-family: "SF Mono", "Fira Code", monospace;
-        font-size: 12px;
-        line-height: 1.7;
-        max-height: 280px;
-        overflow-y: auto;
-        color: #a0a098;
-    }
-    .terminal .log-ok    { color: var(--green); }
-    .terminal .log-err   { color: var(--red); }
-    .terminal .log-warn  { color: #e0a040; }
-    .terminal .log-info  { color: var(--blue); }
-    .terminal .log-ia    { color: var(--purple); }
-    .terminal .log-ts    { color: var(--text3); margin-right: 8px; }
-
-    /* ── Progress bar ────────────────────────────────────── */
-    .progress-wrap { background: var(--bg3); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 10px; }
-    .progress-bar  { height: 100%; background: var(--gold); border-radius: 4px; transition: width 0.4s ease; }
-
-    /* ── Toggle ─────────────────────────────────────────── */
-    .toggle-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--border);
-    }
-    .toggle-row:last-child { border-bottom: none; }
-    .toggle-info { flex: 1; }
-    .toggle-name { font-size: 13px; font-weight: 500; }
-    .toggle-desc { font-size: 12px; color: var(--text3); margin-top: 2px; }
-    .toggle {
-        position: relative;
-        width: 40px;
-        height: 22px;
-        flex-shrink: 0;
-    }
-    .toggle input { display: none; }
-    .toggle-track {
-        position: absolute;
-        inset: 0;
-        background: var(--bg3);
-        border-radius: 11px;
-        cursor: pointer;
-        border: 1px solid var(--border);
-        transition: background 0.2s;
-    }
-    .toggle-track::after {
-        content: '';
-        position: absolute;
-        left: 3px; top: 3px;
-        width: 14px; height: 14px;
-        background: var(--text3);
-        border-radius: 50%;
-        transition: all 0.2s;
-    }
-    .toggle input:checked + .toggle-track { background: var(--gold-glow); border-color: var(--gold-dim); }
-    .toggle input:checked + .toggle-track::after { left: 21px; background: var(--gold); }
-
-    /* ── Agenda (fila) ───────────────────────────────────── */
-    .fila-item {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--border);
-    }
-    .fila-item:last-child { border-bottom: none; }
-    .fila-hora {
-        font-size: 12px;
-        color: var(--gold);
-        font-weight: 600;
-        min-width: 50px;
-    }
-    .fila-titulo { flex: 1; font-size: 13px; color: var(--text); }
-    .fila-tipo { font-size: 11px; color: var(--text3); }
-
-    /* ── Analytics chart bars ────────────────────────────── */
-    .chart-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .chart-label { font-size: 12px; color: var(--text2); width: 70px; text-align: right; }
-    .chart-bar-wrap { flex: 1; background: var(--bg3); border-radius: 3px; height: 22px; overflow: hidden; position: relative; }
-    .chart-bar-fill { height: 100%; border-radius: 3px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #000; transition: width 0.6s ease; }
-    .chart-val { font-size: 12px; color: var(--text2); min-width: 60px; text-align: right; }
-
-    /* ── Empty state ────────────────────────────────────── */
-    .empty {
-        text-align: center;
-        padding: 48px 20px;
-        color: var(--text3);
-    }
-    .empty-icon { font-size: 36px; margin-bottom: 12px; }
-    .empty-title { font-size: 14px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
-    .empty-desc { font-size: 12px; line-height: 1.6; }
-
-    /* ── Notificação flash ───────────────────────────────── */
-    #flash {
-        position: fixed;
-        bottom: 24px; right: 24px;
-        background: var(--bg2);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 12px 18px;
-        font-size: 13px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        transform: translateY(80px);
-        opacity: 0;
-        transition: all 0.3s ease;
-        z-index: 999;
-        max-width: 320px;
-    }
-    #flash.show { transform: translateY(0); opacity: 1; }
-    #flash.success { border-color: var(--green); }
-    #flash.error   { border-color: var(--red); }
-
-    /* ── Responsivo ─────────────────────────────────────── */
-    @media (max-width: 900px) {
-        .shell { grid-template-columns: 1fr; }
-        nav { display: none; }
-        .stats-row { grid-template-columns: 1fr 1fr; }
-        .two-col { grid-template-columns: 1fr; }
-    }
-    </style>
-    </head>
-    <body>
-
-    <!-- Barra de status viva -->
-    <div id="status-bar"><div class="pulse"></div></div>
-
-    <div class="shell">
-
-    <!-- Header -->
-    <header>
-        <div class="logo">✦ BoomVibes <span>/ Painel</span></div>
-        <div class="header-right">
-        <div id="daemon-dot" class="dot off"></div>
-        <span class="daemon-label" id="daemon-label">Daemon inativo</span>
-        <button class="btn btn-primary btn-sm" id="btn-daemon" onclick="toggleDaemon()">▶ Iniciar daemon</button>
-        </div>
-    </header>
-
-    <!-- Nav -->
-    <nav>
-        <div class="nav-section">Conteúdo</div>
-        <div class="nav-item active" onclick="goTo('dashboard')">
-        <span class="nav-icon">⊞</span> Dashboard
-        </div>
-        <div class="nav-item" onclick="goTo('gerar')">
-        <span class="nav-icon">✦</span> Gerar vídeos
-        </div>
-        <div class="nav-item" onclick="goTo('fila')">
-        <span class="nav-icon">◷</span> Fila de postagem
-        </div>
-
-        <div class="nav-section">Fontes</div>
-        <div class="nav-item" onclick="goTo('youtube')">
-        <span class="nav-icon">▶</span> YouTube → Shorts
-        </div>
-        <div class="nav-item" onclick="goTo('local')">
-        <span class="nav-icon">⊡</span> Vídeo local
-        </div>
-
-        <div class="nav-section">Dados</div>
-        <div class="nav-item" onclick="goTo('analytics')">
-        <span class="nav-icon">⤴</span> Performance
-        </div>
-        <div class="nav-item" onclick="goTo('historico')">
-        <span class="nav-icon">≡</span> Histórico
-        </div>
-
-        <div class="nav-section">Sistema</div>
-        <div class="nav-item" onclick="goTo('config')">
-        <span class="nav-icon">⚙</span> Configurações
-        </div>
-    </nav>
-
-    <!-- Main -->
-    <main>
-
-        <!-- ── DASHBOARD ─────────────────────────────── -->
-        <div class="page active" id="page-dashboard">
-        <div class="page-title">Dashboard</div>
-        <div class="page-sub">Visão geral do canal @BoomVibes6</div>
-
-        <div class="stats-row">
-            <div class="stat-card">
-            <div class="stat-label">Vídeos gerados</div>
-            <div class="stat-val">0</div>
-            <div class="stat-sub">Total no banco</div>
-            </div>
-            <div class="stat-card">
-            <div class="stat-label">Postados</div>
-            <div class="stat-val green">0</div>
-            <div class="stat-sub">YouTube + TikTok</div>
-            </div>
-            <div class="stat-card">
-            <div class="stat-label">Agendados</div>
-            <div class="stat-val blue">0</div>
-            <div class="stat-sub">Prontos para ir</div>
-            </div>
-            <div class="stat-card">
-            <div class="stat-label">Custo API</div>
-            <div class="stat-val gold">R$0,00</div>
-            <div class="stat-sub">Acumulado total</div>
-            </div>
-        </div>
-
-        <div class="two-col">
-            <div class="panel">
-            <div class="panel-head">
-                <span class="panel-title">Próximas postagens</span>
-                <button class="btn btn-ghost btn-sm" onclick="goTo('fila')">Ver fila →</button>
-            </div>
-            <div class="panel-body">
-                <div class="empty">
-                <div class="empty-icon">◷</div>
-                <div class="empty-title">Fila vazia</div>
-                <div class="empty-desc">Gere vídeos e agende<br>para ver a fila aqui.</div>
-                </div>
-            </div>
-            </div>
-
-            <div class="panel">
-            <div class="panel-head">
-                <span class="panel-title">Recomendações da IA</span>
-                <button class="btn btn-ghost btn-sm" onclick="goTo('analytics')">Analytics →</button>
-            </div>
-            <div class="panel-body">
-                <div class="empty">
-                <div class="empty-icon">🤖</div>
-                <div class="empty-title">Sem dados ainda</div>
-                <div class="empty-desc">Após postar e coletar métricas,<br>a IA sugere melhorias aqui.</div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel full-col">
-            <div class="panel-head">
-            <span class="panel-title">Log do sistema</span>
-            <button class="btn btn-ghost btn-sm" onclick="clearLog()">Limpar</button>
-            </div>
-            <div class="panel-body" style="padding:0">
-            <div class="terminal" id="log-terminal">
-                <span class="log-ts">--:--:--</span><span class="log-info">✓ Interface carregada — bem-vindo ao BoomVibes</span><br>
-                <span class="log-ts">--:--:--</span><span>Configure sua chave de API em ⚙ Configurações para começar.</span><br>
-            </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── GERAR VÍDEOS ───────────────────────────── -->
-        <div class="page" id="page-gerar">
-        <div class="page-title">Gerar vídeos</div>
-        <div class="page-sub">Crie conteúdo original com IA — sem precisar de vídeo externo</div>
-
-        <div class="two-col">
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Formato e quantidade</span></div>
-            <div class="panel-body">
-                <div class="field">
-                <label>Formatos do dia</label>
-                <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
-                    <input type="checkbox" checked id="fmt-reflexao"> Reflexão do dia <span class="badge badge-gold" style="margin-left:4px">75–90s</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
-                    <input type="checkbox" checked id="fmt-historia"> História bíblica / santo <span class="badge badge-purple" style="margin-left:4px">70–85s</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
-                    <input type="checkbox" checked id="fmt-versiculo"> Versículo do dia <span class="badge badge-blue" style="margin-left:4px">60–65s</span>
-                    </label>
-                </div>
-                </div>
-                <div class="field">
-                <label>Tema específico (opcional)</label>
-                <input type="text" id="tema-input" placeholder="Ex: fé na tribulação, Davi e Golias, Salmos 91...">
-                </div>
-                <div class="field">
-                <label>Voz</label>
-                <select id="voz-select">
-                    <option value="gtts">gTTS (gratuito)</option>
-                    <option value="elevenlabs">ElevenLabs (qualidade profissional)</option>
-                </select>
-                </div>
-            </div>
-            </div>
-
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Pipeline diário completo</span></div>
-            <div class="panel-body">
-                <p style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6">
-                Roda tudo de uma vez: gera conteúdo original,
-                processa URLs agendadas e agenda os prontos nos
-                melhores horários.
-                </p>
-                <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="runPipeline()">
-                ▶ Rodar pipeline do dia
-                </button>
-                <div style="margin-top:12px">
-                <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Progresso</div>
-                <div class="progress-wrap"><div class="progress-bar" id="pipeline-progress" style="width:0%"></div></div>
-                <div id="pipeline-status" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head">
-            <span class="panel-title">Gerar agora</span>
-            <div style="display:flex;gap:8px">
-                <button class="btn btn-ghost btn-sm" onclick="gerarFormato('reflexao')">+ Reflexão</button>
-                <button class="btn btn-ghost btn-sm" onclick="gerarFormato('historia')">+ História</button>
-                <button class="btn btn-ghost btn-sm" onclick="gerarFormato('versiculo')">+ Versículo</button>
-                <button class="btn btn-primary btn-sm" onclick="gerarTodos()">Gerar selecionados</button>
-            </div>
-            </div>
-            <div class="panel-body" style="padding:0">
-            <div class="terminal" id="gerar-log" style="max-height:200px">
-                <span style="color:var(--text3)">Saída aparecerá aqui quando gerar...</span><br>
-            </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── FILA ───────────────────────────────────── -->
-        <div class="page" id="page-fila">
-        <div class="page-title">Fila de postagem</div>
-        <div class="page-sub">Vídeos prontos para ir ao ar no YouTube Shorts e TikTok</div>
-
-        <div class="two-col" style="margin-bottom:18px">
-            <div class="panel">
-            <div class="panel-head">
-                <span class="panel-title">Prontos para agendar</span>
-                <button class="btn btn-primary btn-sm" onclick="agendarLote()">Agendar todos</button>
-            </div>
-            <div class="panel-body" id="prontos-lista">
-                <div class="empty">
-                <div class="empty-icon">🎬</div>
-                <div class="empty-title">Nenhum vídeo pronto</div>
-                <div class="empty-desc">Gere conteúdo primeiro.</div>
-                </div>
-            </div>
-            </div>
-            <div class="panel">
-            <div class="panel-head">
-                <span class="panel-title">Agendados</span>
-                <span class="badge badge-blue" id="agendados-count">0</span>
-            </div>
-            <div class="panel-body" id="agendados-lista">
-                <div class="empty">
-                <div class="empty-icon">📅</div>
-                <div class="empty-title">Fila vazia</div>
-                <div class="empty-desc">Agende os vídeos prontos.</div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head">
-            <span class="panel-title">Últimos postados</span>
-            </div>
-            <div class="panel-body" style="padding:0">
-            <table>
-                <thead><tr>
-                <th>Vídeo</th><th>Formato</th><th>Duração</th>
-                <th>Postado em</th><th>Plataformas</th>
-                </tr></thead>
-                <tbody id="postados-tbody">
-                <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo postado ainda</td></tr>
-                </tbody>
-            </table>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── YOUTUBE ────────────────────────────────── -->
-        <div class="page" id="page-youtube">
-        <div class="page-title">YouTube → Shorts</div>
-        <div class="page-sub">Baixa, transcreve e corta automaticamente com IA</div>
-
-        <div class="two-col">
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Processar vídeo</span></div>
-            <div class="panel-body">
-                <div class="field">
-                <label>URL do YouTube</label>
-                <input type="url" id="yt-url" placeholder="https://youtu.be/...">
-                </div>
-                <div class="field">
-                <label>Modelo Whisper</label>
-                <select id="yt-modelo">
-                    <option value="base">base — rápido, boa precisão</option>
-                    <option value="small">small — mais preciso</option>
-                    <option value="medium">medium — excelente</option>
-                    <option value="large">large — máxima qualidade</option>
-                    <option value="tiny">tiny — muito rápido (teste)</option>
-                </select>
-                </div>
-                <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="processarYT()">
-                ▶ Baixar e processar
-                </button>
-            </div>
-            </div>
-
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">URLs diárias</span></div>
-            <div class="panel-body">
-                <div class="field">
-                <label>URLs processadas diariamente pelo pipeline (uma por linha)</label>
-                <textarea id="urls-diarias" rows="5" placeholder="https://youtu.be/&#10;https://youtu.be/"></textarea>
-                </div>
-                <button class="btn btn-primary btn-sm" onclick="salvarUrls()">Salvar URLs</button>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head"><span class="panel-title">Saída</span></div>
-            <div class="panel-body" style="padding:0">
-            <div class="terminal" id="yt-log" style="max-height:220px">
-                <span style="color:var(--text3)">Cole uma URL e clique em Baixar e processar...</span><br>
-            </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── LOCAL ─────────────────────────────────── -->
-        <div class="page" id="page-local">
-        <div class="page-title">Vídeo local</div>
-        <div class="page-sub">Processa um vídeo do seu computador para TikTok + Shorts</div>
-
-        <div class="panel" style="margin-bottom:18px">
-            <div class="panel-head"><span class="panel-title">Selecionar arquivo</span></div>
-            <div class="panel-body">
-            <div id="dropzone" style="
-                border: 2px dashed var(--border);
-                border-radius: var(--radius);
-                padding: 40px;
-                text-align: center;
-                cursor: pointer;
-                color: var(--text3);
-                transition: border-color 0.2s;
-            " onmouseenter="this.style.borderColor='var(--gold-dim)'"
-                onmouseleave="this.style.borderColor='var(--border)'"
-                onclick="document.getElementById('file-input').click()">
-                <div style="font-size:28px;margin-bottom:10px">⊡</div>
-                <div style="font-size:13px;margin-bottom:4px">Clique para selecionar</div>
-                <div style="font-size:11px">MP4, MOV, AVI, MKV — máx. 4GB</div>
-                <input type="file" id="file-input" accept="video/*" style="display:none" onchange="selecionarArquivo(this)">
-            </div>
-            <div id="arquivo-selecionado" style="display:none;margin-top:12px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);font-size:13px;color:var(--text)"></div>
-            <button class="btn btn-primary" style="margin-top:14px;display:none" id="btn-processar-local" onclick="processarLocal()">
-                ▶ Processar vídeo
-            </button>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head"><span class="panel-title">Saída</span></div>
-            <div class="panel-body" style="padding:0">
-            <div class="terminal" id="local-log" style="max-height:200px">
-                <span style="color:var(--text3)">Selecione um arquivo para começar...</span><br>
-            </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── ANALYTICS ─────────────────────────────── -->
-        <div class="page" id="page-analytics">
-        <div class="page-title">Performance</div>
-        <div class="page-sub">Métricas do YouTube Analytics + análise da IA</div>
-
-        <div style="display:flex;gap:10px;margin-bottom:20px">
-            <button class="btn btn-primary" onclick="coletarMetricas()">↓ Coletar métricas</button>
-            <button class="btn btn-ghost" onclick="analisarIA()">🤖 Analisar com IA</button>
-            <button class="btn btn-ghost" onclick="verRecomendacoes()">Ver recomendações</button>
-        </div>
-
-        <div class="stats-row" style="grid-template-columns:repeat(3,1fr)">
-            <div class="stat-card">
-            <div class="stat-label">Views totais</div>
-            <div class="stat-val" id="a-views">—</div>
-            <div class="stat-sub">Últimos 28 dias</div>
-            </div>
-            <div class="stat-card">
-            <div class="stat-label">Retenção média</div>
-            <div class="stat-val gold" id="a-retencao">—</div>
-            <div class="stat-sub">% assistido</div>
-            </div>
-            <div class="stat-card">
-            <div class="stat-label">Inscritos ganhos</div>
-            <div class="stat-val green" id="a-inscritos">—</div>
-            <div class="stat-sub">Via Shorts</div>
-            </div>
-        </div>
-
-        <div class="two-col">
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Performance por formato</span></div>
-            <div class="panel-body" id="chart-formato">
-                <div class="empty">
-                <div class="empty-icon">⤴</div>
-                <div class="empty-title">Sem dados</div>
-                <div class="empty-desc">Colete métricas para ver o gráfico.</div>
-                </div>
-            </div>
-            </div>
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Melhores horários</span></div>
-            <div class="panel-body" id="chart-horario">
-                <div class="empty">
-                <div class="empty-icon">🕐</div>
-                <div class="empty-title">Sem dados</div>
-                <div class="empty-desc">Colete métricas para ver os horários.</div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head"><span class="panel-title">Últimas recomendações da IA</span></div>
-            <div class="panel-body" id="recomendacoes-body">
-            <div class="empty">
-                <div class="empty-icon">🤖</div>
-                <div class="empty-title">Nenhuma análise ainda</div>
-                <div class="empty-desc">Clique em "Analisar com IA" após coletar métricas.</div>
-            </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── HISTÓRICO ──────────────────────────────── -->
-        <div class="page" id="page-historico">
-        <div class="page-title">Histórico</div>
-        <div class="page-sub">Todos os vídeos processados e cortes gerados</div>
-
-        <div class="panel">
-            <div class="panel-head">
-            <span class="panel-title">Vídeos processados</span>
-            <input type="text" placeholder="Buscar..." style="width:200px;padding:6px 10px;font-size:12px" oninput="filtrarHistorico(this.value)">
-            </div>
-            <div class="panel-body" style="padding:0">
-            <table>
-                <thead><tr>
-                <th>Título</th><th>Tipo</th><th>Cortes</th>
-                <th>Custo</th><th>Data</th><th></th>
-                </tr></thead>
-                <tbody id="historico-tbody">
-                <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo no histórico</td></tr>
-                </tbody>
-            </table>
-            </div>
-        </div>
-        </div>
-
-        <!-- ── CONFIG ─────────────────────────────────── -->
-        <div class="page" id="page-config">
-        <div class="page-title">Configurações</div>
-        <div class="page-sub">Credenciais, canal e preferências do sistema</div>
-
-        <div class="two-col">
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">Canal</span></div>
-            <div class="panel-body">
-                <div class="field">
-                <label>Nome do canal (@ do YouTube/TikTok)</label>
-                <input type="text" id="cfg-canal" value="@BoomVibes6">
-                </div>
-                <div class="field">
-                <label>Idioma das transcrições</label>
-                <select id="cfg-idioma">
-                    <option value="pt">Português (pt)</option>
-                    <option value="en">Inglês (en)</option>
-                    <option value="auto">Detectar automaticamente</option>
-                </select>
-                </div>
-                <div class="field">
-                <label>Modelo Whisper padrão</label>
-                <select id="cfg-whisper">
-                    <option value="tiny">tiny — muito rápido</option>
-                    <option value="base" selected>base — rápido, boa precisão</option>
-                    <option value="small">small — mais preciso</option>
-                    <option value="medium">medium — excelente</option>
-                    <option value="large">large — máxima qualidade</option>
-                </select>
-                </div>
-            </div>
-            </div>
-
-            <div class="panel">
-            <div class="panel-head"><span class="panel-title">APIs</span></div>
-            <div class="panel-body">
-                <div class="field">
-                <label>Chave Anthropic (Claude)</label>
-                <input type="text" id="cfg-anthropic" placeholder="sk-ant-..." autocomplete="off">
-                </div>
-                <div class="field">
-                <label>Chave ElevenLabs (opcional)</label>
-                <input type="text" id="cfg-elevenlabs" placeholder="Deixe vazio para usar gTTS gratuito">
-                </div>
-                <div class="field">
-                <label>Token Telegram Bot (opcional)</label>
-                <input type="text" id="cfg-telegram" placeholder="123456789:AAF...">
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <div class="panel" style="margin-bottom:18px">
-            <div class="panel-head"><span class="panel-title">Agendamento automático</span></div>
-            <div class="panel-body">
-            <div class="toggle-row">
-                <div class="toggle-info">
-                <div class="toggle-name">Postar no YouTube Shorts</div>
-                <div class="toggle-desc">Upload automático via YouTube Data API</div>
-                </div>
-                <label class="toggle"><input type="checkbox" checked id="tog-yt"><div class="toggle-track"></div></label>
-            </div>
-            <div class="toggle-row">
-                <div class="toggle-info">
-                <div class="toggle-name">Postar no TikTok</div>
-                <div class="toggle-desc">Upload automático via TikTok Content Posting API</div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="tog-tt"><div class="toggle-track"></div></label>
-            </div>
-            <div class="toggle-row">
-                <div class="toggle-info">
-                <div class="toggle-name">Notificações Telegram</div>
-                <div class="toggle-desc">Aviso ao postar, erros e resumo diário</div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="tog-tg"><div class="toggle-track"></div></label>
-            </div>
-            <div class="toggle-row">
-                <div class="toggle-info">
-                <div class="toggle-name">Análise semanal automática</div>
-                <div class="toggle-desc">Coleta métricas e analisa com IA toda segunda-feira</div>
-                </div>
-                <label class="toggle"><input type="checkbox" checked id="tog-analytics"><div class="toggle-track"></div></label>
-            </div>
-            </div>
-        </div>
-
-        <div style="display:flex;gap:10px">
-            <button class="btn btn-primary" onclick="salvarConfig()">Salvar configurações</button>
-            <button class="btn btn-ghost" onclick="testarConfig()">Testar conexões</button>
-        </div>
-        </div>
-
-    </main>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoomVibes — Painel de Controle</title>
+<style>
+  /* ── Tokens ─────────────────────────────────────────── */
+  :root {
+    --bg:        #0e0e11;
+    --bg2:       #16161b;
+    --bg3:       #1e1e25;
+    --border:    #2a2a35;
+    --gold:      #c9a84c;
+    --gold-dim:  #7a6330;
+    --gold-glow: rgba(201,168,76,0.12);
+    --text:      #e8e6e0;
+    --text2:     #8c8a84;
+    --text3:     #5a5854;
+    --green:     #4caf7d;
+    --red:       #e05252;
+    --blue:      #5b8dee;
+    --purple:    #9b6dde;
+    --radius:    10px;
+    --radius-sm: 6px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Barra de status viva (assinatura) ─────────────── */
+  #status-bar {
+    height: 3px;
+    background: var(--border);
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    overflow: hidden;
+  }
+  #status-bar .pulse {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    animation: sweep 2.5s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+  #status-bar.idle .pulse { display: none; }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-rows: 56px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Topo ───────────────────────────────────────────── */
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    margin-top: 3px;
+    background: var(--bg);
+  }
+  .logo {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--gold);
+  }
+  .logo span { color: var(--text2); font-weight: 400; font-size: 13px; }
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+  .dot.off { background: var(--text3); box-shadow: none; animation: none; }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  .daemon-label { font-size: 12px; color: var(--text2); }
+
+  /* ── Sidebar ─────────────────────────────────────────── */
+  nav {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .nav-section {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    text-transform: uppercase;
+    padding: 12px 20px 6px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    color: var(--text2);
+    cursor: pointer;
+    border-radius: 0;
+    transition: all 0.15s;
+    font-size: 13.5px;
+    border-left: 2px solid transparent;
+  }
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active {
+    background: var(--gold-glow);
+    color: var(--gold);
+    border-left-color: var(--gold);
+  }
+  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+  /* ── Main ───────────────────────────────────────────── */
+  main {
+    padding: 28px 32px;
+    overflow-y: auto;
+    max-height: calc(100vh - 59px);
+  }
+
+  /* ── Páginas ─────────────────────────────────────────── */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    margin-bottom: 6px;
+  }
+  .page-sub {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 28px;
+  }
+
+  /* ── Cards de stat ───────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .stat-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .stat-val { font-size: 28px; font-weight: 700; letter-spacing: -1px; color: var(--text); }
+  .stat-val.gold { color: var(--gold); }
+  .stat-val.green { color: var(--green); }
+  .stat-val.blue  { color: var(--blue);  }
+  .stat-sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+  /* ── Grid 2 colunas ─────────────────────────────────── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+  .full-col { margin-bottom: 18px; }
+
+  /* ── Painel ─────────────────────────────────────────── */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title { font-size: 13px; font-weight: 600; }
+  .panel-body { padding: 16px 20px; }
+
+  /* ── Tabela ──────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text3);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg3); }
+  td.title-cell { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Badges ─────────────────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 20px;
+    gap: 4px;
+  }
+  .badge-green  { background: rgba(76,175,125,0.15); color: var(--green); }
+  .badge-gold   { background: rgba(201,168,76,0.15); color: var(--gold); }
+  .badge-blue   { background: rgba(91,141,238,0.15); color: var(--blue); }
+  .badge-purple { background: rgba(155,109,222,0.15); color: var(--purple); }
+  .badge-gray   { background: var(--bg3); color: var(--text3); }
+  .badge-red    { background: rgba(224,82,82,0.15); color: var(--red); }
+
+  /* ── Botões ─────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: var(--gold);
+    color: #000;
+  }
+  .btn-primary:hover { background: #d4b05a; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg3); color: var(--text); }
+  .btn-danger {
+    background: rgba(224,82,82,0.15);
+    color: var(--red);
+    border: 1px solid rgba(224,82,82,0.2);
+  }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  /* ── Inputs ─────────────────────────────────────────── */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text2);
+    margin-bottom: 6px;
+  }
+  input[type=text], input[type=url], input[type=number], select, textarea {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--gold-dim); }
+  textarea { resize: vertical; min-height: 80px; }
+  select option { background: var(--bg2); }
+
+  /* ── Terminal / log ─────────────────────────────────── */
+  .terminal {
+    background: #0a0a0d;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    max-height: 280px;
+    overflow-y: auto;
+    color: #a0a098;
+  }
+  .terminal .log-ok    { color: var(--green); }
+  .terminal .log-err   { color: var(--red); }
+  .terminal .log-warn  { color: #e0a040; }
+  .terminal .log-info  { color: var(--blue); }
+  .terminal .log-ia    { color: var(--purple); }
+  .terminal .log-ts    { color: var(--text3); margin-right: 8px; }
+
+  /* ── Progress bar ────────────────────────────────────── */
+  .progress-wrap { background: var(--bg3); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 10px; }
+  .progress-bar  { height: 100%; background: var(--gold); border-radius: 4px; transition: width 0.4s ease; }
+
+  /* ── Toggle ─────────────────────────────────────────── */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-info { flex: 1; }
+  .toggle-name { font-size: 13px; font-weight: 500; }
+  .toggle-desc { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+  .toggle input { display: none; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--bg3);
+    border-radius: 11px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 14px; height: 14px;
+    background: var(--text3);
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-track { background: var(--gold-glow); border-color: var(--gold-dim); }
+  .toggle input:checked + .toggle-track::after { left: 21px; background: var(--gold); }
+
+  /* ── Agenda (fila) ───────────────────────────────────── */
+  .fila-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .fila-item:last-child { border-bottom: none; }
+  .fila-hora {
+    font-size: 12px;
+    color: var(--gold);
+    font-weight: 600;
+    min-width: 50px;
+  }
+  .fila-titulo { flex: 1; font-size: 13px; color: var(--text); }
+  .fila-tipo { font-size: 11px; color: var(--text3); }
+
+  /* ── Analytics chart bars ────────────────────────────── */
+  .chart-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .chart-label { font-size: 12px; color: var(--text2); width: 70px; text-align: right; }
+  .chart-bar-wrap { flex: 1; background: var(--bg3); border-radius: 3px; height: 22px; overflow: hidden; position: relative; }
+  .chart-bar-fill { height: 100%; border-radius: 3px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: #000; transition: width 0.6s ease; }
+  .chart-val { font-size: 12px; color: var(--text2); min-width: 60px; text-align: right; }
+
+  /* ── Empty state ────────────────────────────────────── */
+  .empty {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text3);
+  }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty-title { font-size: 14px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+  .empty-desc { font-size: 12px; line-height: 1.6; }
+
+  /* ── Notificação flash ───────────────────────────────── */
+  #flash {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s ease;
+    z-index: 999;
+    max-width: 320px;
+  }
+  #flash.show { transform: translateY(0); opacity: 1; }
+  #flash.success { border-color: var(--green); }
+  #flash.error   { border-color: var(--red); }
+
+  /* ── Responsivo ─────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    nav { display: none; }
+    .stats-row { grid-template-columns: 1fr 1fr; }
+    .two-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Barra de status viva -->
+<div id="status-bar"><div class="pulse"></div></div>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">✦ BoomVibes <span>/ Painel</span></div>
+    <div class="header-right">
+      <div id="daemon-dot" class="dot off"></div>
+      <span class="daemon-label" id="daemon-label">Daemon inativo</span>
+      <button class="btn btn-primary btn-sm" id="btn-daemon" onclick="toggleDaemon()">▶ Iniciar daemon</button>
+    </div>
+  </header>
+
+  <!-- Nav -->
+  <nav>
+    <div class="nav-section">Conteúdo</div>
+    <div class="nav-item active" onclick="goTo('dashboard')">
+      <span class="nav-icon">⊞</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="goTo('gerar')">
+      <span class="nav-icon">✦</span> Gerar vídeos
+    </div>
+    <div class="nav-item" onclick="goTo('fila')">
+      <span class="nav-icon">◷</span> Fila de postagem
     </div>
 
-    <!-- Flash notification -->
-    <div id="flash"></div>
+    <div class="nav-section">Fontes</div>
+    <div class="nav-item" onclick="goTo('youtube')">
+      <span class="nav-icon">▶</span> YouTube → Shorts
+    </div>
+    <div class="nav-item" onclick="goTo('local')">
+      <span class="nav-icon">⊡</span> Vídeo local
+    </div>
 
-    <script>
-    // ── Navegação ───────────────────────────────────────────
-    function goTo(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
-    document.getElementById('page-' + page).classList.add('active')
-    document.querySelectorAll('.nav-item').forEach(n => {
-        if (n.textContent.toLowerCase().includes(page === 'dashboard' ? 'dash' :
-            page === 'gerar' ? 'gerar' : page === 'fila' ? 'fila' :
-            page === 'youtube' ? 'youtube' : page === 'local' ? 'local' :
-            page === 'analytics' ? 'perf' : page === 'historico' ? 'hist' : 'config')) {
-        n.classList.add('active')
-        }
-    })
-    }
+    <div class="nav-section">Dados</div>
+    <div class="nav-item" onclick="goTo('analytics')">
+      <span class="nav-icon">⤴</span> Performance
+    </div>
+    <div class="nav-item" onclick="goTo('historico')">
+      <span class="nav-icon">≡</span> Histórico
+    </div>
 
-    // ── Flash notification ───────────────────────────────────
-    function flash(msg, tipo = 'success') {
-    const el = document.getElementById('flash')
-    el.innerHTML = `<span>${tipo === 'success' ? '✅' : tipo === 'error' ? '❌' : 'ℹ️'}</span> ${msg}`
-    el.className = `show ${tipo}`
-    setTimeout(() => el.className = '', 3500)
-    }
+    <div class="nav-section">Sistema</div>
+    <div class="nav-item" onclick="goTo('config')">
+      <span class="nav-icon">⚙</span> Configurações
+    </div>
+  </nav>
 
-    // ── Log helper ───────────────────────────────────────────
-    function addLog(targetId, msg, tipo = '') {
-    const el = document.getElementById(targetId)
-    const hora = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'})
-    const cls = tipo === 'ok' ? 'log-ok' : tipo === 'err' ? 'log-err' :
-                tipo === 'warn' ? 'log-warn' : tipo === 'ia' ? 'log-ia' : 'log-info'
-    el.innerHTML += `<span class="log-ts">${hora}</span><span class="${cls}">${msg}</span><br>`
-    el.scrollTop = el.scrollHeight
-    // Espelhar no log global
-    if (targetId !== 'log-terminal') {
-        const main = document.getElementById('log-terminal')
-        main.innerHTML += `<span class="log-ts">${hora}</span><span class="${cls}">${msg}</span><br>`
-        main.scrollTop = main.scrollHeight
-    }
-    }
+  <!-- Main -->
+  <main>
 
-    function clearLog() {
-    document.getElementById('log-terminal').innerHTML = ''
-    }
+    <!-- ── DASHBOARD ─────────────────────────────── -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-title">Dashboard</div>
+      <div class="page-sub">Visão geral do canal @BoomVibes6</div>
 
-    // ── Daemon ──────────────────────────────────────────────
-    let daemonAtivo = false
-    function toggleDaemon() {
-    daemonAtivo = !daemonAtivo
-    const dot   = document.getElementById('daemon-dot')
-    const label = document.getElementById('daemon-label')
-    const btn   = document.getElementById('btn-daemon')
-    const bar   = document.getElementById('status-bar')
-    if (daemonAtivo) {
-        dot.classList.remove('off')
-        label.textContent = 'Daemon ativo'
-        btn.textContent = '⏹ Parar daemon'
-        bar.classList.remove('idle')
-        addLog('log-terminal', '→ Daemon iniciado — verificando fila a cada 5 min', 'ok')
-        flash('Daemon iniciado com sucesso')
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Vídeos gerados</div>
+          <div class="stat-val">0</div>
+          <div class="stat-sub">Total no banco</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Postados</div>
+          <div class="stat-val green">0</div>
+          <div class="stat-sub">YouTube + TikTok</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Agendados</div>
+          <div class="stat-val blue">0</div>
+          <div class="stat-sub">Prontos para ir</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Custo API</div>
+          <div class="stat-val gold">R$0,00</div>
+          <div class="stat-sub">Acumulado total</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Próximas postagens</span>
+            <button class="btn btn-ghost btn-sm" onclick="goTo('fila')">Ver fila →</button>
+          </div>
+          <div class="panel-body">
+            <div class="empty">
+              <div class="empty-icon">◷</div>
+              <div class="empty-title">Fila vazia</div>
+              <div class="empty-desc">Gere vídeos e agende<br>para ver a fila aqui.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Recomendações da IA</span>
+            <button class="btn btn-ghost btn-sm" onclick="goTo('analytics')">Analytics →</button>
+          </div>
+          <div class="panel-body">
+            <div class="empty">
+              <div class="empty-icon">🤖</div>
+              <div class="empty-title">Sem dados ainda</div>
+              <div class="empty-desc">Após postar e coletar métricas,<br>a IA sugere melhorias aqui.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel full-col">
+        <div class="panel-head">
+          <span class="panel-title">Log do sistema</span>
+          <button class="btn btn-ghost btn-sm" onclick="clearLog()">Limpar</button>
+        </div>
+        <div class="panel-body" style="padding:0">
+          <div class="terminal" id="log-terminal">
+            <span class="log-ts">--:--:--</span><span class="log-info">✓ Interface carregada — bem-vindo ao BoomVibes</span><br>
+            <span class="log-ts">--:--:--</span><span>Configure sua chave de API em ⚙ Configurações para começar.</span><br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GERAR VÍDEOS ───────────────────────────── -->
+    <div class="page" id="page-gerar">
+      <div class="page-title">Gerar vídeos</div>
+      <div class="page-sub">Crie conteúdo original com IA — sem precisar de vídeo externo</div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Formato e quantidade</span></div>
+          <div class="panel-body">
+            <div class="field">
+              <label>Formatos do dia</label>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
+                  <input type="checkbox" checked id="fmt-reflexao"> Reflexão do dia <span class="badge badge-gold" style="margin-left:4px">75–90s</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
+                  <input type="checkbox" checked id="fmt-historia"> História bíblica / santo <span class="badge badge-purple" style="margin-left:4px">70–85s</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer">
+                  <input type="checkbox" checked id="fmt-versiculo"> Versículo do dia <span class="badge badge-blue" style="margin-left:4px">60–65s</span>
+                </label>
+              </div>
+            </div>
+            <div class="field">
+              <label>Tema específico (opcional)</label>
+              <input type="text" id="tema-input" placeholder="Ex: fé na tribulação, Davi e Golias, Salmos 91...">
+            </div>
+            <div class="field">
+              <label>Voz</label>
+              <select id="voz-select">
+                <option value="gtts">gTTS (gratuito)</option>
+                <option value="elevenlabs">ElevenLabs (qualidade profissional)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Pipeline diário completo</span></div>
+          <div class="panel-body">
+            <p style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6">
+              Roda tudo de uma vez: gera conteúdo original,
+              processa URLs agendadas e agenda os prontos nos
+              melhores horários.
+            </p>
+            <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="runPipeline()">
+              ▶ Rodar pipeline do dia
+            </button>
+            <div style="margin-top:12px">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Progresso</div>
+              <div class="progress-wrap"><div class="progress-bar" id="pipeline-progress" style="width:0%"></div></div>
+              <div id="pipeline-status" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Gerar agora</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="gerarFormato('reflexao')">+ Reflexão</button>
+            <button class="btn btn-ghost btn-sm" onclick="gerarFormato('historia')">+ História</button>
+            <button class="btn btn-ghost btn-sm" onclick="gerarFormato('versiculo')">+ Versículo</button>
+            <button class="btn btn-primary btn-sm" onclick="gerarTodos()">Gerar selecionados</button>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0">
+          <div class="terminal" id="gerar-log" style="max-height:200px">
+            <span style="color:var(--text3)">Saída aparecerá aqui quando gerar...</span><br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FILA ───────────────────────────────────── -->
+    <div class="page" id="page-fila">
+      <div class="page-title">Fila de postagem</div>
+      <div class="page-sub">Vídeos prontos para ir ao ar no YouTube Shorts e TikTok</div>
+
+      <div class="two-col" style="margin-bottom:18px">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Prontos para agendar</span>
+            <button class="btn btn-primary btn-sm" onclick="agendarLote()">Agendar todos</button>
+          </div>
+          <div class="panel-body" id="prontos-lista">
+            <div class="empty">
+              <div class="empty-icon">🎬</div>
+              <div class="empty-title">Nenhum vídeo pronto</div>
+              <div class="empty-desc">Gere conteúdo primeiro.</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Agendados</span>
+            <span class="badge badge-blue" id="agendados-count">0</span>
+          </div>
+          <div class="panel-body" id="agendados-lista">
+            <div class="empty">
+              <div class="empty-icon">📅</div>
+              <div class="empty-title">Fila vazia</div>
+              <div class="empty-desc">Agende os vídeos prontos.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Últimos postados</span>
+        </div>
+        <div class="panel-body" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>Vídeo</th><th>Formato</th><th>Duração</th>
+              <th>Postado em</th><th>Plataformas</th>
+            </tr></thead>
+            <tbody id="postados-tbody">
+              <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo postado ainda</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── YOUTUBE ────────────────────────────────── -->
+    <div class="page" id="page-youtube">
+      <div class="page-title">YouTube → Shorts</div>
+      <div class="page-sub">Baixa, transcreve e corta automaticamente com IA</div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Processar vídeo</span></div>
+          <div class="panel-body">
+            <div class="field">
+              <label>URL do YouTube</label>
+              <input type="url" id="yt-url" placeholder="https://youtu.be/...">
+            </div>
+            <div class="field">
+              <label>Modelo Whisper</label>
+              <select id="yt-modelo">
+                <option value="base">base — rápido, boa precisão</option>
+                <option value="small">small — mais preciso</option>
+                <option value="medium">medium — excelente</option>
+                <option value="large">large — máxima qualidade</option>
+                <option value="tiny">tiny — muito rápido (teste)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="processarYT()">
+              ▶ Baixar e processar
+            </button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">URLs diárias</span></div>
+          <div class="panel-body">
+            <div class="field">
+              <label>URLs processadas diariamente pelo pipeline (uma por linha)</label>
+              <textarea id="urls-diarias" rows="5" placeholder="https://youtu.be/&#10;https://youtu.be/"></textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="salvarUrls()">Salvar URLs</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Saída</span></div>
+        <div class="panel-body" style="padding:0">
+          <div class="terminal" id="yt-log" style="max-height:220px">
+            <span style="color:var(--text3)">Cole uma URL e clique em Baixar e processar...</span><br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── LOCAL ─────────────────────────────────── -->
+    <div class="page" id="page-local">
+      <div class="page-title">Vídeo local</div>
+      <div class="page-sub">Processa um vídeo do seu computador para TikTok + Shorts</div>
+
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-head"><span class="panel-title">Selecionar arquivo</span></div>
+        <div class="panel-body">
+          <div id="dropzone" style="
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            color: var(--text3);
+            transition: border-color 0.2s;
+          " onmouseenter="this.style.borderColor='var(--gold-dim)'"
+             onmouseleave="this.style.borderColor='var(--border)'"
+             onclick="document.getElementById('file-input').click()">
+            <div style="font-size:28px;margin-bottom:10px">⊡</div>
+            <div style="font-size:13px;margin-bottom:4px">Clique para selecionar</div>
+            <div style="font-size:11px">MP4, MOV, AVI, MKV — máx. 4GB</div>
+            <input type="file" id="file-input" accept="video/*" style="display:none" onchange="selecionarArquivo(this)">
+          </div>
+          <div id="arquivo-selecionado" style="display:none;margin-top:12px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);font-size:13px;color:var(--text)"></div>
+          <button class="btn btn-primary" style="margin-top:14px;display:none" id="btn-processar-local" onclick="processarLocal()">
+            ▶ Processar vídeo
+          </button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Saída</span></div>
+        <div class="panel-body" style="padding:0">
+          <div class="terminal" id="local-log" style="max-height:200px">
+            <span style="color:var(--text3)">Selecione um arquivo para começar...</span><br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ANALYTICS ─────────────────────────────── -->
+    <div class="page" id="page-analytics">
+      <div class="page-title">Performance</div>
+      <div class="page-sub">Métricas do YouTube Analytics + análise da IA</div>
+
+      <div style="display:flex;gap:10px;margin-bottom:20px">
+        <button class="btn btn-primary" onclick="coletarMetricas()">↓ Coletar métricas</button>
+        <button class="btn btn-ghost" onclick="analisarIA()">🤖 Analisar com IA</button>
+        <button class="btn btn-ghost" onclick="verRecomendacoes()">Ver recomendações</button>
+      </div>
+
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card">
+          <div class="stat-label">Views totais</div>
+          <div class="stat-val" id="a-views">—</div>
+          <div class="stat-sub">Últimos 28 dias</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Retenção média</div>
+          <div class="stat-val gold" id="a-retencao">—</div>
+          <div class="stat-sub">% assistido</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Inscritos ganhos</div>
+          <div class="stat-val green" id="a-inscritos">—</div>
+          <div class="stat-sub">Via Shorts</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Performance por formato</span></div>
+          <div class="panel-body" id="chart-formato">
+            <div class="empty">
+              <div class="empty-icon">⤴</div>
+              <div class="empty-title">Sem dados</div>
+              <div class="empty-desc">Colete métricas para ver o gráfico.</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Melhores horários</span></div>
+          <div class="panel-body" id="chart-horario">
+            <div class="empty">
+              <div class="empty-icon">🕐</div>
+              <div class="empty-title">Sem dados</div>
+              <div class="empty-desc">Colete métricas para ver os horários.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Últimas recomendações da IA</span></div>
+        <div class="panel-body" id="recomendacoes-body">
+          <div class="empty">
+            <div class="empty-icon">🤖</div>
+            <div class="empty-title">Nenhuma análise ainda</div>
+            <div class="empty-desc">Clique em "Analisar com IA" após coletar métricas.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HISTÓRICO ──────────────────────────────── -->
+    <div class="page" id="page-historico">
+      <div class="page-title">Histórico</div>
+      <div class="page-sub">Todos os vídeos processados e cortes gerados</div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Vídeos processados</span>
+          <input type="text" placeholder="Buscar..." style="width:200px;padding:6px 10px;font-size:12px" oninput="filtrarHistorico(this.value)">
+        </div>
+        <div class="panel-body" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>Título</th><th>Tipo</th><th>Cortes</th>
+              <th>Custo</th><th>Data</th><th></th>
+            </tr></thead>
+            <tbody id="historico-tbody">
+              <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo no histórico</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CONFIG ─────────────────────────────────── -->
+    <div class="page" id="page-config">
+      <div class="page-title">Configurações</div>
+      <div class="page-sub">Credenciais, canal e preferências do sistema</div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Canal</span></div>
+          <div class="panel-body">
+            <div class="field">
+              <label>Nome do canal (@ do YouTube/TikTok)</label>
+              <input type="text" id="cfg-canal" value="@BoomVibes6">
+            </div>
+            <div class="field">
+              <label>Idioma das transcrições</label>
+              <select id="cfg-idioma">
+                <option value="pt">Português (pt)</option>
+                <option value="en">Inglês (en)</option>
+                <option value="auto">Detectar automaticamente</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Modelo Whisper padrão</label>
+              <select id="cfg-whisper">
+                <option value="tiny">tiny — muito rápido</option>
+                <option value="base" selected>base — rápido, boa precisão</option>
+                <option value="small">small — mais preciso</option>
+                <option value="medium">medium — excelente</option>
+                <option value="large">large — máxima qualidade</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">APIs</span></div>
+          <div class="panel-body">
+            <div class="field">
+              <label>Chave Anthropic (Claude)</label>
+              <input type="text" id="cfg-anthropic" placeholder="sk-ant-..." autocomplete="off">
+            </div>
+            <div class="field">
+              <label>Chave ElevenLabs (opcional)</label>
+              <input type="text" id="cfg-elevenlabs" placeholder="Deixe vazio para usar gTTS gratuito">
+            </div>
+            <div class="field">
+              <label>Token Telegram Bot (opcional)</label>
+              <input type="text" id="cfg-telegram" placeholder="123456789:AAF...">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-head"><span class="panel-title">Agendamento automático</span></div>
+        <div class="panel-body">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-name">Postar no YouTube Shorts</div>
+              <div class="toggle-desc">Upload automático via YouTube Data API</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked id="tog-yt"><div class="toggle-track"></div></label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-name">Postar no TikTok</div>
+              <div class="toggle-desc">Upload automático via TikTok Content Posting API</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-tt"><div class="toggle-track"></div></label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-name">Notificações Telegram</div>
+              <div class="toggle-desc">Aviso ao postar, erros e resumo diário</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="tog-tg"><div class="toggle-track"></div></label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-name">Análise semanal automática</div>
+              <div class="toggle-desc">Coleta métricas e analisa com IA toda segunda-feira</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked id="tog-analytics"><div class="toggle-track"></div></label>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-primary" onclick="salvarConfig()">Salvar configurações</button>
+        <button class="btn btn-ghost" onclick="testarConfig()">Testar conexões</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Flash notification -->
+<div id="flash"></div>
+
+<script>
+// ── Navegação ───────────────────────────────────────────
+function goTo(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
+  document.getElementById('page-' + page).classList.add('active')
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.textContent.toLowerCase().includes(page === 'dashboard' ? 'dash' :
+        page === 'gerar' ? 'gerar' : page === 'fila' ? 'fila' :
+        page === 'youtube' ? 'youtube' : page === 'local' ? 'local' :
+        page === 'analytics' ? 'perf' : page === 'historico' ? 'hist' : 'config')) {
+      n.classList.add('active')
+    }
+  })
+}
+
+// ── Flash notification ───────────────────────────────────
+function flash(msg, tipo = 'success') {
+  const el = document.getElementById('flash')
+  el.innerHTML = `<span>${tipo === 'success' ? '✅' : tipo === 'error' ? '❌' : 'ℹ️'}</span> ${msg}`
+  el.className = `show ${tipo}`
+  setTimeout(() => el.className = '', 3500)
+}
+
+// ── Log helper ───────────────────────────────────────────
+function addLog(targetId, msg, tipo = '') {
+  const el = document.getElementById(targetId)
+  const hora = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'})
+  const cls = tipo === 'ok' ? 'log-ok' : tipo === 'err' ? 'log-err' :
+              tipo === 'warn' ? 'log-warn' : tipo === 'ia' ? 'log-ia' : 'log-info'
+  el.innerHTML += `<span class="log-ts">${hora}</span><span class="${cls}">${msg}</span><br>`
+  el.scrollTop = el.scrollHeight
+  // Espelhar no log global
+  if (targetId !== 'log-terminal') {
+    const main = document.getElementById('log-terminal')
+    main.innerHTML += `<span class="log-ts">${hora}</span><span class="${cls}">${msg}</span><br>`
+    main.scrollTop = main.scrollHeight
+  }
+}
+
+function clearLog() {
+  document.getElementById('log-terminal').innerHTML = ''
+}
+
+// ── Daemon ──────────────────────────────────────────────
+let daemonAtivo = false
+function toggleDaemon() {
+  daemonAtivo = !daemonAtivo
+  const dot   = document.getElementById('daemon-dot')
+  const label = document.getElementById('daemon-label')
+  const btn   = document.getElementById('btn-daemon')
+  const bar   = document.getElementById('status-bar')
+  if (daemonAtivo) {
+    dot.classList.remove('off')
+    label.textContent = 'Daemon ativo'
+    btn.textContent = '⏹ Parar daemon'
+    bar.classList.remove('idle')
+    addLog('log-terminal', '→ Daemon iniciado — verificando fila a cada 5 min', 'ok')
+    flash('Daemon iniciado com sucesso')
+  } else {
+    dot.classList.add('off')
+    label.textContent = 'Daemon inativo'
+    btn.textContent = '▶ Iniciar daemon'
+    bar.classList.add('idle')
+    addLog('log-terminal', '⚠ Daemon encerrado', 'warn')
+    flash('Daemon encerrado', 'info')
+  }
+}
+
+// ── Pipeline ─────────────────────────────────────────────
+async function runPipeline() {
+  const progress = document.getElementById('pipeline-progress')
+  const status   = document.getElementById('pipeline-status')
+  const etapas   = [
+    { msg: 'Gerando reflexão do dia...', pct: 20, tipo: 'ia' },
+    { msg: 'Gerando história bíblica...', pct: 40, tipo: 'ia' },
+    { msg: 'Gerando versículo do dia...', pct: 60, tipo: 'ia' },
+    { msg: 'Agendando vídeos prontos...', pct: 80, tipo: 'info' },
+    { msg: '✓ Pipeline concluído — 3 vídeos gerados e agendados', pct: 100, tipo: 'ok' },
+  ]
+  for (const e of etapas) {
+    progress.style.width = e.pct + '%'
+    status.textContent   = e.msg
+    addLog('gerar-log', e.msg, e.tipo)
+    await sleep(900)
+  }
+  flash('Pipeline do dia concluído!')
+  setTimeout(() => { progress.style.width = '0%'; status.textContent = '' }, 3000)
+}
+
+// ── Gerar ────────────────────────────────────────────────
+async function gerarFormato(fmt) {
+  const nomes = { reflexao: 'Reflexão do dia', historia: 'História bíblica', versiculo: 'Versículo do dia' }
+  addLog('gerar-log', `→ Gerando ${nomes[fmt]}...`)
+  await sleep(600)
+  addLog('gerar-log', `🤖 IA escrevendo roteiro (~165 palavras)...`, 'ia')
+  await sleep(800)
+  addLog('gerar-log', `→ Gerando voz...`)
+  await sleep(500)
+  addLog('gerar-log', `→ Montando vídeo 9:16 com legenda...`)
+  await sleep(700)
+  addLog('gerar-log', `✓ output/${fmt}_pronto.mp4 — 78s, 12.4MB`, 'ok')
+  flash(`${nomes[fmt]} gerado!`)
+}
+
+async function gerarTodos() {
+  const formatos = []
+  if (document.getElementById('fmt-reflexao').checked) formatos.push('reflexao')
+  if (document.getElementById('fmt-historia').checked)  formatos.push('historia')
+  if (document.getElementById('fmt-versiculo').checked) formatos.push('versiculo')
+  if (!formatos.length) { flash('Selecione ao menos um formato', 'error'); return }
+  for (const f of formatos) await gerarFormato(f)
+}
+
+// ── YouTube ──────────────────────────────────────────────
+async function processarYT() {
+  const url = document.getElementById('yt-url').value.trim()
+  if (!url) { flash('Cole uma URL do YouTube', 'error'); return }
+  const log = 'yt-log'
+  addLog(log, `→ Baixando: ${url}`)
+  await sleep(800)
+  addLog(log, `✓ Baixado: podcast_ep01.mp4 (45min 12s)`, 'ok')
+  await sleep(400)
+  addLog(log, `→ Transcrevendo com Whisper (base)...`)
+  await sleep(1200)
+  addLog(log, `✓ Transcrição: 187 segmentos`, 'ok')
+  await sleep(300)
+  addLog(log, `🤖 IA selecionando cortes...`, 'ia')
+  await sleep(900)
+  addLog(log, `🤖 8 cortes selecionados (5 densos, 3 impacto)`, 'ia')
+  await sleep(400)
+  addLog(log, `→ Cortando e processando para 9:16...`)
+  await sleep(1000)
+  addLog(log, `✓ 8 Shorts prontos em output/`, 'ok')
+  flash('8 Shorts gerados com sucesso!')
+}
+
+// ── Local ────────────────────────────────────────────────
+function selecionarArquivo(input) {
+  if (!input.files.length) return
+  const f = input.files[0]
+  const info = document.getElementById('arquivo-selecionado')
+  const btn  = document.getElementById('btn-processar-local')
+  info.style.display = 'block'
+  info.innerHTML = `⊡ <strong>${f.name}</strong> — ${(f.size/1024/1024).toFixed(1)}MB`
+  btn.style.display = 'block'
+}
+
+async function processarLocal() {
+  const log = 'local-log'
+  const f   = document.getElementById('file-input').files[0]
+  addLog(log, `→ Processando: ${f.name}`)
+  await sleep(600)
+  addLog(log, `→ Transcrevendo áudio...`)
+  await sleep(1100)
+  addLog(log, `🤖 IA identificando melhores momentos...`, 'ia')
+  await sleep(800)
+  addLog(log, `→ Gerando cortes para TikTok + Shorts...`)
+  await sleep(900)
+  addLog(log, `✓ Pronto! Vídeos salvos em output/`, 'ok')
+  flash('Vídeo processado com sucesso!')
+}
+
+// ── Fila ─────────────────────────────────────────────────
+async function agendarLote() {
+  flash('Agendando vídeos nos melhores horários...')
+  await sleep(600)
+  document.getElementById('agendados-count').textContent = '3'
+  flash('3 vídeos agendados: 7h, 12h e 18h de amanhã')
+}
+
+// ── Analytics ────────────────────────────────────────────
+async function coletarMetricas() {
+  addLog('log-terminal', '→ Coletando métricas do YouTube Analytics...')
+  flash('Coletando métricas...')
+  await sleep(1200)
+  document.getElementById('a-views').textContent = '24.8k'
+  document.getElementById('a-retencao').textContent = '68%'
+  document.getElementById('a-inscritos').textContent = '+87'
+
+  // Chart formato
+  document.getElementById('chart-formato').innerHTML = `
+    <div class="chart-row">
+      <div class="chart-label">Reflexão</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:85%;background:var(--gold)">15.2k</div></div>
+      <div class="chart-val">72% ret</div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-label">História</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:62%;background:var(--purple)">7.1k</div></div>
+      <div class="chart-val">61% ret</div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-label">Versículo</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:21%;background:var(--blue)">2.5k</div></div>
+      <div class="chart-val">48% ret</div>
+    </div>
+  `
+  // Chart horário
+  document.getElementById('chart-horario').innerHTML = `
+    <div class="chart-row">
+      <div class="chart-label">18h</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:90%;background:var(--gold)">9.4k</div></div>
+      <div class="chart-val">avg</div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-label">21h</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:72%;background:var(--gold)">7.5k</div></div>
+      <div class="chart-val">avg</div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-label">07h</div>
+      <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:55%;background:var(--gold)">5.8k</div></div>
+      <div class="chart-val">avg</div>
+    </div>
+  `
+  addLog('log-terminal', '✓ Métricas coletadas: 12 Shorts', 'ok')
+  flash('Métricas coletadas!')
+}
+
+async function analisarIA() {
+  addLog('log-terminal', '🤖 IA analisando performance...', 'ia')
+  flash('Analisando com IA...')
+  await sleep(1500)
+  document.getElementById('recomendacoes-body').innerHTML = `
+    <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:16px">
+      Canal com crescimento consistente. Reflexões performam 2× melhor que histórias em retenção.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--gold)">
+        <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:4px">✅ Aposte em: REFLEXÃO</div>
+        <div style="font-size:12px;color:var(--text2)">Retenção média 72% — significativamente acima dos outros formatos.</div>
+      </div>
+      <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--blue)">
+        <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:4px">🕐 Poste às 18h</div>
+        <div style="font-size:12px;color:var(--text2)">Vídeos postados às 18h geram 60% mais views que outros horários.</div>
+      </div>
+      <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--purple)">
+        <div style="font-size:12px;font-weight:600;color:var(--purple);margin-bottom:4px">🎯 Temas para priorizar</div>
+        <div style="font-size:12px;color:var(--text2)">Fé na tribulação · Cura interior · Propósito de vida</div>
+      </div>
+      <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--green)">
+        <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px">🎣 Gancho que retém</div>
+        <div style="font-size:12px;color:var(--text2)">Começar com pergunta direta gera 40% mais retenção nos primeiros 3s.</div>
+      </div>
+    </div>
+  `
+  addLog('log-terminal', '🤖 Análise concluída — recomendações salvas', 'ia')
+  flash('Análise concluída!')
+}
+
+function verRecomendacoes() { goTo('analytics') }
+
+// ── Config ───────────────────────────────────────────────
+function salvarConfig() {
+  flash('Configurações salvas! Edite também o arquivo config.py e .env')
+}
+
+async function testarConfig() {
+  addLog('log-terminal', '→ Testando conexões...')
+  await sleep(600)
+  addLog('log-terminal', '✓ Anthropic API: conectado', 'ok')
+  await sleep(400)
+  addLog('log-terminal', '✓ YouTube API: autenticado', 'ok')
+  await sleep(300)
+  addLog('log-terminal', '⚠ TikTok API: não configurado', 'warn')
+  flash('2/3 conexões OK')
+}
+
+// ── URLs diárias ─────────────────────────────────────────
+function salvarUrls() {
+  flash('URLs salvas em urls_diarias.txt')
+}
+
+// ── Histórico ────────────────────────────────────────────
+function filtrarHistorico(q) {
+  const rows = document.querySelectorAll('#historico-tbody tr')
+  rows.forEach(r => {
+    r.style.display = r.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'
+  })
+}
+
+// ── Util ─────────────────────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+// ═══════════════════════════════════════════════════════
+//  INTEGRAÇÃO REAL COM servidor.py
+// ═══════════════════════════════════════════════════════
+const API = 'http://localhost:8000'
+let _apiAtiva = false
+let _sseConn  = null
+
+// ── Health check ─────────────────────────────────────────
+async function checarAPI() {
+  try {
+    const r = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(2000) })
+    if (r.ok) {
+      _apiAtiva = true
+      const d = await r.json()
+      addLog('log-terminal', '✓ Servidor conectado em localhost:8000', 'ok')
+      if (d.daemon && !daemonAtivo) {
+        daemonAtivo = true
+        document.getElementById('daemon-dot').classList.remove('off')
+        document.getElementById('daemon-label').textContent = 'Daemon ativo'
+        document.getElementById('btn-daemon').textContent = '⏹ Parar daemon'
+        document.getElementById('status-bar').classList.remove('idle')
+      }
+      await carregarStats()
+      await carregarFila()
+      await carregarConfig()
+      await carregarUrls()
+      return true
+    }
+  } catch(e) {}
+  addLog('log-terminal', '⚠ Servidor offline — rode: python servidor.py', 'warn')
+  return false
+}
+
+// ── Stats do banco ────────────────────────────────────────
+async function carregarStats() {
+  if (!_apiAtiva) return
+  try {
+    const d = await fetch(`${API}/api/stats`).then(r => r.json())
+    const cards = document.querySelectorAll('.stat-val')
+    if (cards.length >= 4) {
+      cards[0].textContent = d.total_cortes  || '0'
+      cards[1].textContent = d.postados      || '0'
+      cards[2].textContent = d.agendados     || '0'
+      cards[3].textContent = `R$${(d.custo_brl || 0).toFixed(2)}`
+    }
+  } catch(e) {}
+}
+
+// ── Fila e cortes ─────────────────────────────────────────
+async function carregarFila() {
+  if (!_apiAtiva) return
+  try {
+    // Agendados
+    const ag = (await fetch(`${API}/api/fila/proximas`).then(r=>r.json())).agendados || []
+    document.getElementById('agendados-count').textContent = ag.length
+    if (ag.length > 0) {
+      document.getElementById('agendados-lista').innerHTML = ag.map(c => {
+        const dt = (c.agendado_para||'').slice(0,16)
+        return `<div class="fila-item">
+          <div class="fila-hora">${dt.slice(11,16)||'—'}</div>
+          <div style="flex:1">
+            <div class="fila-titulo">${c.titulo||'—'}</div>
+            <div class="fila-tipo">${dt.slice(0,10)} · ${c.tipo||''} · ${c.duracao_s||0}s</div>
+          </div>
+          <span class="badge badge-blue">📅</span>
+        </div>`
+      }).join('')
+    }
+    // Prontos
+    const prontos = (await fetch(`${API}/api/cortes?status=pronto`).then(r=>r.json())).cortes || []
+    if (prontos.length > 0) {
+      document.getElementById('prontos-lista').innerHTML = prontos.map(c => `
+        <div class="fila-item">
+          <div class="fila-hora" style="color:var(--green)">✓</div>
+          <div style="flex:1">
+            <div class="fila-titulo">${c.titulo||'—'}</div>
+            <div class="fila-tipo">${c.tipo||''} · ${c.duracao_s||0}s</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="postarAgora(${c.id})">Postar</button>
+        </div>`).join('')
+    }
+    // Postados
+    const postados = (await fetch(`${API}/api/cortes?status=postado&limit=10`).then(r=>r.json())).cortes || []
+    const tbody = document.getElementById('postados-tbody')
+    if (postados.length > 0) {
+      tbody.innerHTML = postados.map(c => `
+        <tr>
+          <td class="title-cell">${c.titulo||'—'}</td>
+          <td><span class="badge badge-${c.tipo==='denso'?'gold':c.tipo==='impacto'?'purple':'blue'}">${c.tipo||'—'}</span></td>
+          <td>${c.duracao_s||0}s</td>
+          <td>${(c.postado_em||'').slice(0,16)}</td>
+          <td>${c.youtube_short_id?`<a href="https://youtube.com/shorts/${c.youtube_short_id}" target="_blank" style="color:var(--blue);font-size:11px">▶ YT</a>`:''}</td>
+        </tr>`).join('')
     } else {
-        dot.classList.add('off')
-        label.textContent = 'Daemon inativo'
-        btn.textContent = '▶ Iniciar daemon'
-        bar.classList.add('idle')
-        addLog('log-terminal', '⚠ Daemon encerrado', 'warn')
-        flash('Daemon encerrado', 'info')
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo postado ainda</td></tr>'
     }
+  } catch(e) { console.error('carregarFila:', e) }
+}
+
+async function carregarHistorico() {
+  if (!_apiAtiva) return
+  try {
+    const videos = (await fetch(`${API}/api/videos`).then(r=>r.json())).videos || []
+    const tbody  = document.getElementById('historico-tbody')
+    if (videos.length > 0) {
+      tbody.innerHTML = videos.map(v => `
+        <tr>
+          <td class="title-cell">${v.titulo||'—'}</td>
+          <td><span class="badge badge-gray">${(v.youtube_id||'').startsWith('gerado_')?(v.youtube_id||'').split('_')[1]:'youtube'}</span></td>
+          <td>${v.num_cortes||0}</td>
+          <td>$${(v.custo_api_usd||0).toFixed(4)}</td>
+          <td>${(v.criado_em||'').slice(0,16)}</td>
+          <td><button class="btn btn-ghost btn-sm" onclick="alert('Cortes do vídeo ${v.id}')">Ver</button></td>
+        </tr>`).join('')
+    } else {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text3)">Nenhum vídeo no histórico</td></tr>'
     }
+  } catch(e) {}
+}
 
-    // ── Pipeline ─────────────────────────────────────────────
-    async function runPipeline() {
-    const progress = document.getElementById('pipeline-progress')
-    const status   = document.getElementById('pipeline-status')
-    const etapas   = [
-        { msg: 'Gerando reflexão do dia...', pct: 20, tipo: 'ia' },
-        { msg: 'Gerando história bíblica...', pct: 40, tipo: 'ia' },
-        { msg: 'Gerando versículo do dia...', pct: 60, tipo: 'ia' },
-        { msg: 'Agendando vídeos prontos...', pct: 80, tipo: 'info' },
-        { msg: '✓ Pipeline concluído — 3 vídeos gerados e agendados', pct: 100, tipo: 'ok' },
-    ]
-    for (const e of etapas) {
-        progress.style.width = e.pct + '%'
-        status.textContent   = e.msg
-        addLog('gerar-log', e.msg, e.tipo)
-        await sleep(900)
-    }
-    flash('Pipeline do dia concluído!')
-    setTimeout(() => { progress.style.width = '0%'; status.textContent = '' }, 3000)
-    }
+async function carregarConfig() {
+  if (!_apiAtiva) return
+  try {
+    const d = await fetch(`${API}/api/config`).then(r=>r.json())
+    if (d.nome_canal)      document.getElementById('cfg-canal').value   = d.nome_canal
+    if (d.idioma)          document.getElementById('cfg-idioma').value  = d.idioma
+    if (d.modelo_whisper)  document.getElementById('cfg-whisper').value = d.modelo_whisper
+    if (d.tem_telegram)    document.getElementById('tog-tg').checked    = true
+    const ch = document.getElementById('cfg-anthropic')
+    if (ch) ch.placeholder = d.tem_anthropic ? '✓ configurada no .env' : 'sk-ant-...'
+  } catch(e) {}
+}
 
-    // ── Gerar ────────────────────────────────────────────────
-    async function gerarFormato(fmt) {
-    const nomes = { reflexao: 'Reflexão do dia', historia: 'História bíblica', versiculo: 'Versículo do dia' }
-    addLog('gerar-log', `→ Gerando ${nomes[fmt]}...`)
-    await sleep(600)
-    addLog('gerar-log', `🤖 IA escrevendo roteiro (~165 palavras)...`, 'ia')
-    await sleep(800)
-    addLog('gerar-log', `→ Gerando voz...`)
-    await sleep(500)
-    addLog('gerar-log', `→ Montando vídeo 9:16 com legenda...`)
-    await sleep(700)
-    addLog('gerar-log', `✓ output/${fmt}_pronto.mp4 — 78s, 12.4MB`, 'ok')
-    flash(`${nomes[fmt]} gerado!`)
-    }
+async function carregarUrls() {
+  if (!_apiAtiva) return
+  try {
+    const d = await fetch(`${API}/api/urls-diarias`).then(r=>r.json())
+    if (d.conteudo) document.getElementById('urls-diarias').value = d.conteudo
+  } catch(e) {}
+}
 
-    async function gerarTodos() {
-    const formatos = []
-    if (document.getElementById('fmt-reflexao').checked) formatos.push('reflexao')
-    if (document.getElementById('fmt-historia').checked)  formatos.push('historia')
-    if (document.getElementById('fmt-versiculo').checked) formatos.push('versiculo')
-    if (!formatos.length) { flash('Selecione ao menos um formato', 'error'); return }
-    for (const f of formatos) await gerarFormato(f)
-    }
+// ── SSE — logs em tempo real ──────────────────────────────
+function conectarSSE() {
+  if (!_apiAtiva) return
+  if (_sseConn) _sseConn.close()
+  _sseConn = new EventSource(`${API}/api/logs/stream`)
+  _sseConn.onmessage = e => {
+    try {
+      const d    = JSON.parse(e.data)
+      const tipo = d.tipo === 'ok'  ? 'ok'   : d.tipo === 'err'  ? 'err' :
+                   d.tipo === 'warn'? 'warn' : d.tipo === 'ia'   ? 'ia'  : 'info'
+      ;['log-terminal','gerar-log','yt-log','local-log'].forEach(id => {
+        const el = document.getElementById(id)
+        if (el) {
+          el.innerHTML += `<span class="log-ts">${d.ts}</span><span class="log-${tipo}">${d.msg}</span><br>`
+          el.scrollTop = el.scrollHeight
+        }
+      })
+    } catch(err) {}
+  }
+  _sseConn.onerror = () => { if (_apiAtiva) setTimeout(conectarSSE, 5000) }
+}
 
-    // ── YouTube ──────────────────────────────────────────────
-    async function processarYT() {
-    const url = document.getElementById('yt-url').value.trim()
-    if (!url) { flash('Cole uma URL do YouTube', 'error'); return }
-    const log = 'yt-log'
-    addLog(log, `→ Baixando: ${url}`)
-    await sleep(800)
-    addLog(log, `✓ Baixado: podcast_ep01.mp4 (45min 12s)`, 'ok')
-    await sleep(400)
-    addLog(log, `→ Transcrevendo com Whisper (base)...`)
-    await sleep(1200)
-    addLog(log, `✓ Transcrição: 187 segmentos`, 'ok')
-    await sleep(300)
-    addLog(log, `🤖 IA selecionando cortes...`, 'ia')
-    await sleep(900)
-    addLog(log, `🤖 8 cortes selecionados (5 densos, 3 impacto)`, 'ia')
-    await sleep(400)
-    addLog(log, `→ Cortando e processando para 9:16...`)
-    await sleep(1000)
-    addLog(log, `✓ 8 Shorts prontos em output/`, 'ok')
-    flash('8 Shorts gerados com sucesso!')
-    }
+// ── Overrides: funções simuladas → API real ───────────────
+const _toggleDaemon_sim = toggleDaemon
+toggleDaemon = async function() {
+  if (!_apiAtiva) { _toggleDaemon_sim(); return }
+  await fetch(`${API}/api/daemon/${daemonAtivo?'parar':'iniciar'}`, {method:'POST'})
+  _toggleDaemon_sim()
+}
 
-    // ── Local ────────────────────────────────────────────────
-    function selecionarArquivo(input) {
-    if (!input.files.length) return
-    const f = input.files[0]
-    const info = document.getElementById('arquivo-selecionado')
-    const btn  = document.getElementById('btn-processar-local')
-    info.style.display = 'block'
-    info.innerHTML = `⊡ <strong>${f.name}</strong> — ${(f.size/1024/1024).toFixed(1)}MB`
-    btn.style.display = 'block'
-    }
+runPipeline = async function() {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const r = await fetch(`${API}/api/pipeline/rodar`, {method:'POST'})
+  if (r.ok) {
+    flash('Pipeline iniciado! Acompanhe o log.')
+    document.getElementById('pipeline-progress').style.width = '5%'
+    document.getElementById('pipeline-status').textContent = 'Rodando...'
+  } else {
+    flash('Já há um processo em execução', 'error')
+  }
+}
 
-    async function processarLocal() {
-    const log = 'local-log'
-    const f   = document.getElementById('file-input').files[0]
-    addLog(log, `→ Processando: ${f.name}`)
-    await sleep(600)
-    addLog(log, `→ Transcrevendo áudio...`)
-    await sleep(1100)
-    addLog(log, `🤖 IA identificando melhores momentos...`, 'ia')
-    await sleep(800)
-    addLog(log, `→ Gerando cortes para TikTok + Shorts...`)
-    await sleep(900)
-    addLog(log, `✓ Pronto! Vídeos salvos em output/`, 'ok')
-    flash('Vídeo processado com sucesso!')
-    }
+gerarFormato = async function(fmt) {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const tema = document.getElementById('tema-input')?.value?.trim() || null
+  const r = await fetch(`${API}/api/gerar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({formatos:[fmt], tema})
+  })
+  r.ok ? flash(`Gerando ${fmt}! Acompanhe o log.`) : flash('Já há processo em execução','error')
+}
 
-    // ── Fila ─────────────────────────────────────────────────
-    async function agendarLote() {
-    flash('Agendando vídeos nos melhores horários...')
-    await sleep(600)
-    document.getElementById('agendados-count').textContent = '3'
-    flash('3 vídeos agendados: 7h, 12h e 18h de amanhã')
-    }
+gerarTodos = async function() {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const formatos = []
+  if (document.getElementById('fmt-reflexao').checked)  formatos.push('reflexao')
+  if (document.getElementById('fmt-historia').checked)   formatos.push('historia')
+  if (document.getElementById('fmt-versiculo').checked)  formatos.push('versiculo')
+  if (!formatos.length) { flash('Selecione ao menos um formato','error'); return }
+  const tema = document.getElementById('tema-input')?.value?.trim() || null
+  const r = await fetch(`${API}/api/gerar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({formatos, tema})
+  })
+  r.ok ? flash(`Gerando ${formatos.length} vídeos!`) : flash('Já há processo em execução','error')
+}
 
-    // ── Analytics ────────────────────────────────────────────
-    async function coletarMetricas() {
-    addLog('log-terminal', '→ Coletando métricas do YouTube Analytics...')
-    flash('Coletando métricas...')
-    await sleep(1200)
-    document.getElementById('a-views').textContent = '24.8k'
-    document.getElementById('a-retencao').textContent = '68%'
-    document.getElementById('a-inscritos').textContent = '+87'
+processarYT = async function() {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const url    = document.getElementById('yt-url').value.trim()
+  const modelo = document.getElementById('yt-modelo').value
+  if (!url) { flash('Cole uma URL do YouTube','error'); return }
+  const r = await fetch(`${API}/api/youtube/processar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url, modelo})
+  })
+  r.ok ? flash('Processando! Acompanhe o log.') : flash('Já há processo em execução','error')
+}
 
-    // Chart formato
-    document.getElementById('chart-formato').innerHTML = `
-        <div class="chart-row">
-        <div class="chart-label">Reflexão</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:85%;background:var(--gold)">15.2k</div></div>
-        <div class="chart-val">72% ret</div>
-        </div>
-        <div class="chart-row">
-        <div class="chart-label">História</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:62%;background:var(--purple)">7.1k</div></div>
-        <div class="chart-val">61% ret</div>
-        </div>
-        <div class="chart-row">
-        <div class="chart-label">Versículo</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:21%;background:var(--blue)">2.5k</div></div>
-        <div class="chart-val">48% ret</div>
-        </div>
-    `
-    // Chart horário
-    document.getElementById('chart-horario').innerHTML = `
-        <div class="chart-row">
-        <div class="chart-label">18h</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:90%;background:var(--gold)">9.4k</div></div>
-        <div class="chart-val">avg</div>
-        </div>
-        <div class="chart-row">
-        <div class="chart-label">21h</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:72%;background:var(--gold)">7.5k</div></div>
-        <div class="chart-val">avg</div>
-        </div>
-        <div class="chart-row">
-        <div class="chart-label">07h</div>
-        <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:55%;background:var(--gold)">5.8k</div></div>
-        <div class="chart-val">avg</div>
-        </div>
-    `
-    addLog('log-terminal', '✓ Métricas coletadas: 12 Shorts', 'ok')
-    flash('Métricas coletadas!')
-    }
+processarLocal = async function() {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const input = document.getElementById('file-input')
+  if (!input.files.length) { flash('Selecione um arquivo','error'); return }
+  const fd = new FormData()
+  fd.append('arquivo', input.files[0])
+  addLog('local-log', `→ Enviando ${input.files[0].name}...`)
+  const r = await fetch(`${API}/api/local/processar`, {method:'POST', body:fd})
+  r.ok ? flash('Enviado! Acompanhe o log.') : flash('Erro no upload','error')
+}
 
-    async function analisarIA() {
-    addLog('log-terminal', '🤖 IA analisando performance...', 'ia')
-    flash('Analisando com IA...')
-    await sleep(1500)
-    document.getElementById('recomendacoes-body').innerHTML = `
-        <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:16px">
-        Canal com crescimento consistente. Reflexões performam 2× melhor que histórias em retenção.
-        </p>
-        <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--gold)">
-            <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:4px">✅ Aposte em: REFLEXÃO</div>
-            <div style="font-size:12px;color:var(--text2)">Retenção média 72% — significativamente acima dos outros formatos.</div>
-        </div>
-        <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--blue)">
-            <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:4px">🕐 Poste às 18h</div>
-            <div style="font-size:12px;color:var(--text2)">Vídeos postados às 18h geram 60% mais views que outros horários.</div>
-        </div>
-        <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--purple)">
-            <div style="font-size:12px;font-weight:600;color:var(--purple);margin-bottom:4px">🎯 Temas para priorizar</div>
-            <div style="font-size:12px;color:var(--text2)">Fé na tribulação · Cura interior · Propósito de vida</div>
-        </div>
-        <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius-sm);border-left:3px solid var(--green)">
-            <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px">🎣 Gancho que retém</div>
-            <div style="font-size:12px;color:var(--text2)">Começar com pergunta direta gera 40% mais retenção nos primeiros 3s.</div>
-        </div>
-        </div>
-    `
-    addLog('log-terminal', '🤖 Análise concluída — recomendações salvas', 'ia')
-    flash('Análise concluída!')
-    }
+agendarLote = async function() {
+  if (!_apiAtiva) { flash('Servidor offline', 'error'); return }
+  const r = await fetch(`${API}/api/agendar/lote`, {method:'POST'})
+  if (r.ok) { flash('Agendando...'); setTimeout(() => { carregarStats(); carregarFila() }, 3000) }
+}
 
-    function verRecomendacoes() { goTo('analytics') }
+async function postarAgora(id) {
+  if (!_apiAtiva) { flash('Servidor offline','error'); return }
+  const r = await fetch(`${API}/api/postar/agora/${id}`, {method:'POST'})
+  r.ok ? flash(`Postando corte ${id}! Acompanhe o log.`) : flash('Erro ao postar','error')
+}
 
-    // ── Config ───────────────────────────────────────────────
-    function salvarConfig() {
-    flash('Configurações salvas! Edite também o arquivo config.py e .env')
-    }
+coletarMetricas = async function() {
+  if (!_apiAtiva) { flash('Servidor offline','error'); return }
+  await fetch(`${API}/api/analytics/coletar`, {method:'POST'})
+  flash('Coletando métricas! Acompanhe o log.')
+}
 
-    async function testarConfig() {
-    addLog('log-terminal', '→ Testando conexões...')
-    await sleep(600)
-    addLog('log-terminal', '✓ Anthropic API: conectado', 'ok')
-    await sleep(400)
-    addLog('log-terminal', '✓ YouTube API: autenticado', 'ok')
-    await sleep(300)
-    addLog('log-terminal', '⚠ TikTok API: não configurado', 'warn')
-    flash('2/3 conexões OK')
-    }
+analisarIA = async function() {
+  if (!_apiAtiva) { flash('Servidor offline','error'); return }
+  await fetch(`${API}/api/analytics/analisar`, {method:'POST'})
+  flash('Analisando com IA!')
+  setTimeout(async () => {
+    try {
+      const d = await fetch(`${API}/api/analytics/dados`).then(r=>r.json())
+      if (d.por_formato?.length) {
+        const mx = Math.max(...d.por_formato.map(f=>f.avg_views||0))||1
+        document.getElementById('chart-formato').innerHTML = d.por_formato.map(f => {
+          const p = Math.round((f.avg_views||0)/mx*100)
+          return `<div class="chart-row">
+            <div class="chart-label">${f.tipo||'—'}</div>
+            <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:${p}%;background:var(--gold)">${Math.round(f.avg_views||0).toLocaleString()}</div></div>
+            <div class="chart-val">${(f.avg_retencao||0).toFixed(0)}%</div>
+          </div>`
+        }).join('')
+      }
+      if (d.recomendacao) {
+        const rec = d.recomendacao.dados
+        document.getElementById('recomendacoes-body').innerHTML = `
+          <p style="font-size:13px;color:var(--text2);margin-bottom:12px">${rec.resumo||''}</p>
+          ${(rec.acoes_imediatas||[]).map(a=>`<div style="font-size:12px;padding:4px 0;color:var(--text2)">• ${a}</div>`).join('')}`
+      }
+    } catch(e) {}
+  }, 6000)
+}
 
-    // ── URLs diárias ─────────────────────────────────────────
-    function salvarUrls() {
-    flash('URLs salvas em urls_diarias.txt')
-    }
-
-    // ── Histórico ────────────────────────────────────────────
-    function filtrarHistorico(q) {
-    const rows = document.querySelectorAll('#historico-tbody tr')
-    rows.forEach(r => {
-        r.style.display = r.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'
+salvarConfig = async function() {
+  if (!_apiAtiva) { flash('Servidor offline — edite config.py manualmente','error'); return }
+  const r = await fetch(`${API}/api/config`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      nome_canal:     document.getElementById('cfg-canal').value,
+      idioma:         document.getElementById('cfg-idioma').value,
+      modelo_whisper: document.getElementById('cfg-whisper').value,
     })
-    }
+  })
+  flash(r.ok ? 'Configurações salvas!' : 'Erro ao salvar', r.ok?'success':'error')
+}
 
-    // ── Util ─────────────────────────────────────────────────
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
-    </script>
-    </body>
-    </html>
+testarConfig = async function() {
+  if (!_apiAtiva) { flash('Servidor offline','error'); return }
+  const d = await fetch(`${API}/api/config/testar`, {method:'POST'}).then(r=>r.json())
+  const ic = {ok:'✓', nao_configurado:'⚠', nao_autenticado:'⚠', erro:'✗'}
+  const tp = {ok:'ok', nao_configurado:'warn', nao_autenticado:'warn', erro:'err'}
+  Object.entries(d).forEach(([svc,st]) => addLog('log-terminal', `${ic[st]||'·'} ${svc}: ${st}`, tp[st]||'info'))
+}
+
+salvarUrls = async function() {
+  if (!_apiAtiva) { flash('Servidor offline','error'); return }
+  const r = await fetch(`${API}/api/urls-diarias`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({conteudo: document.getElementById('urls-diarias').value})
+  })
+  flash(r.ok ? 'URLs salvas!' : 'Erro ao salvar')
+}
+
+filtrarHistorico = function(q) {
+  document.querySelectorAll('#historico-tbody tr').forEach(r => {
+    r.style.display = r.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'
+  })
+}
+
+// ── Navegação com refresh de dados ───────────────────────
+const _goTo_orig = goTo
+goTo = function(page) {
+  _goTo_orig(page)
+  if (!_apiAtiva) return
+  if (page === 'fila')      carregarFila()
+  if (page === 'historico') carregarHistorico()
+  if (page === 'dashboard') carregarStats()
+  if (page === 'analytics') {
+    fetch(`${API}/api/analytics/dados`).then(r=>r.json()).then(d => {
+      if (!d.por_formato?.length) return
+      const mx = Math.max(...d.por_formato.map(f=>f.avg_views||0))||1
+      document.getElementById('chart-formato').innerHTML = d.por_formato.map(f => {
+        const p = Math.round((f.avg_views||0)/mx*100)
+        return `<div class="chart-row">
+          <div class="chart-label">${f.tipo||'—'}</div>
+          <div class="chart-bar-wrap"><div class="chart-bar-fill" style="width:${p}%;background:var(--gold)">${Math.round(f.avg_views||0).toLocaleString()}</div></div>
+          <div class="chart-val">${(f.avg_retencao||0).toFixed(0)}%</div>
+        </div>`
+      }).join('')
+      const total = d.por_formato.reduce((s,f)=>s+(f.total_views||0),0)
+      const ret   = d.por_formato.reduce((s,f)=>s+(f.avg_retencao||0),0)/(d.por_formato.length||1)
+      document.getElementById('a-views').textContent    = total>1000?`${(total/1000).toFixed(1)}k`:total||'—'
+      document.getElementById('a-retencao').textContent = `${ret.toFixed(0)}%`
+      if (d.recomendacao) {
+        const rec = d.recomendacao.dados
+        document.getElementById('recomendacoes-body').innerHTML = `
+          <p style="font-size:13px;color:var(--text2);margin-bottom:12px">${rec.resumo||''}</p>
+          ${(rec.acoes_imediatas||[]).map(a=>`<div style="font-size:12px;padding:4px 0;color:var(--text2)">• ${a}</div>`).join('')}`
+      }
+    }).catch(()=>{})
+  }
+}
+
+// ── Inicializar ao carregar a página ─────────────────────
+window.addEventListener('load', async () => {
+  const ok = await checarAPI()
+  if (ok) {
+    conectarSSE()
+    setInterval(() => { if (_apiAtiva) carregarStats() }, 30_000)
+    setInterval(() => { if (_apiAtiva) carregarFila()  }, 60_000)
+  }
+})
+</script>
+</body>
+</html>

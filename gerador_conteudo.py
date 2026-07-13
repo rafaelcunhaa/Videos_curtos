@@ -32,6 +32,8 @@
 =======================================================
 """
 
+import asyncio
+import edge_tts
 import os, sys, json, re, random, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
@@ -69,7 +71,7 @@ DURACAO_HISTORIA  = cfg.duracao_historia
 DURACAO_VERSICULO = cfg.duracao_versiculo
 VOLUME_MUSICA     = cfg.volume_musica
 VOZ_ELEVENLABS_ID = cfg.voz_elevenlabs_id
-FORMATOS_DO_DIA   = ["reflexao", "historia", "versiculo"]
+VIDEOS_POR_DIA   = {"reflexao": 4, "historia": 4, "versiculo": 2}
 # ═══════════════════════════════════════════════════════
 
 CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
@@ -308,8 +310,9 @@ def gerar_audio_elevenlabs(roteiro, caminho_saida):
     }
     res = chamar_elevenlabs(requests.post, url, headers=headers, json=body)
     if res.status_code != 200:
-        log(f"Erro ElevenLabs: {res.text[:200]}", "ERRO")
-        return False
+        raise RuntimeError(
+            f"Erro ElevenLabs: {res.text[:200]}"
+        )
 
     with open(caminho_saida, "wb") as f:
         f.write(res.content)
@@ -325,17 +328,83 @@ def gerar_audio_gtts(roteiro, caminho_saida):
     log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
     return True
 
+async def _edge_tts_async(texto, caminho_saida):
+    communicate = edge_tts.Communicate(
+        texto,
+        voice="pt-BR-AntonioNeural",
+        rate="+5%"
+    )
+
+    await communicate.save(str(caminho_saida))
+
+
+def gerar_audio_edge(roteiro, caminho_saida):
+    """Voz gratuita usando Edge TTS"""
+
+    log("Gerando voz com Edge TTS...", "PROC")
+
+    asyncio.run(
+        _edge_tts_async(
+            roteiro,
+            caminho_saida
+        )
+    )
+
+    log(
+        f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB"
+    )
+
+    return True
+
 def gerar_audio(roteiro, caminho_saida):
-    """Escolhe automaticamente ElevenLabs ou gTTS"""
+    """
+    Prioridade:
+
+    1 - ElevenLabs
+    2 - Edge TTS
+    3 - gTTS
+    """
+
     if CHAVE_ELEVENLABS:
-        return gerar_audio_elevenlabs(roteiro, caminho_saida)
-    else:
-        return gerar_audio_gtts(roteiro, caminho_saida)
+
+        try:
+            log("Tentando ElevenLabs...", "PROC")
+            return gerar_audio_elevenlabs(
+                roteiro,
+                caminho_saida
+            )
+
+        except Exception as e:
+            log(
+                f"ElevenLabs indisponível ({e})",
+                "AVISO"
+            )
+
+    try:
+        log("Alternando para Edge TTS...", "PROC")
+        return gerar_audio_edge(
+            roteiro,
+            caminho_saida
+        )
+
+    except Exception as e:
+        log(
+            f"Edge TTS falhou ({e})",
+            "AVISO"
+        )
+
+    log("Alternando para gTTS...", "PROC")
+
+    return gerar_audio_gtts(
+        roteiro,
+        caminho_saida
+    )
+
 
 def obter_duracao_audio(caminho):
     cmd = ["ffprobe","-v","quiet","-show_entries","format=duration",
            "-of","json", str(caminho)]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
     try:
         return float(json.loads(res.stdout)["format"]["duration"])
     except Exception:
@@ -394,10 +463,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # ─── ETAPA 4: MONTAR VÍDEO ───────────────────────────────
 
 def obter_fundo_aleatorio():
-    """Retorna um vídeo de fundo aleatório da pasta fundos/"""
+    """Retorna um vídeo de fundo aleatório da pasta fundos/ ou subpastas."""
     pasta = Path(PASTA_FUNDOS)
     if pasta.exists():
-        videos = list(pasta.glob("*.mp4")) + list(pasta.glob("*.mov"))
+        # Buscar na raiz E em subpastas (fundos/ceu/, fundos/natureza/, etc.)
+        videos = (list(pasta.glob("*.mp4"))   + list(pasta.glob("*.mov")) +
+                  list(pasta.glob("**/*.mp4")) + list(pasta.glob("**/*.mov")))
+        # Remover duplicatas mantendo ordem aleatória
+        videos = list(dict.fromkeys(videos))
         if videos:
             return random.choice(videos)
 
@@ -501,7 +574,7 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
              str(saida_mp4)]
         )
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
 
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-300:]}", "ERRO")
@@ -593,6 +666,7 @@ def gerar_video(formato, tema=None, duracao=None):
         banco.registrar_corte(
             video_id=vid_id, numero=1,
             corte_info={
+                "categoria": "ia",
                 "tipo":   formato,
                 "titulo": dados.get("titulo_yt",""),
                 "gancho": dados["roteiro"].split(".")[0][:80],
@@ -612,12 +686,21 @@ def gerar_video(formato, tema=None, duracao=None):
 def gerar_videos_do_dia(formatos=None, quantidade=None):
     verificar_deps()
 
-    # Usar distribuição otimizada pela análise de performance se disponível
-    formatos_otimizados = _config_otimizada.get("formatos_priorizados")
-    formatos_usar = formatos or formatos_otimizados or FORMATOS_DO_DIA
+    # Monta automaticamente a fila de vídeos do dia
+    if formatos:
+        formatos_usar = formatos
+    else:
+        formatos_usar = []
+
+        for formato, qtd in VIDEOS_POR_DIA.items():
+            formatos_usar.extend([formato] * qtd)
+
+        # embaralha para não gerar vários iguais em sequência
+        random.shuffle(formatos_usar)
+
+    # caso o usuário peça uma quantidade específica
     if quantidade:
-        # Repetir formatos até atingir quantidade
-        formatos_usar = (formatos_usar * ((quantidade // len(formatos_usar)) + 1))[:quantidade]
+        formatos_usar = formatos_usar[:quantidade]
 
     print("\n" + "═"*58)
     print("  GERADOR DE CONTEÚDO RELIGIOSO")

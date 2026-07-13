@@ -105,7 +105,7 @@ def verificar_deps():
 def obter_info_video(caminho):
     cmd = ["ffprobe","-v","quiet","-print_format","json",
            "-show_streams","-show_format", str(caminho)]
-    res  = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
     dados = json.loads(res.stdout)
     info  = {"duracao":0,"largura":0,"altura":0,"fps":30,"tem_audio":False}
     for s in dados.get("streams",[]):
@@ -245,7 +245,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
                "-i",str(caminho_video),"-c","copy",
                "-avoid_negative_ts","make_zero", str(dest)]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -348,7 +348,7 @@ def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
             str(caminho_out)
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0

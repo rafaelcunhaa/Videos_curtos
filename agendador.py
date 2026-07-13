@@ -29,6 +29,7 @@
     python agendador.py --postar-agora CORTE_ID               (posta imediatamente)
     python agendador.py --daemon                              (roda em loop verificando a fila)
     python agendador.py --auth                                (autenticar com YouTube)
+    python agendador.py --reagendar                           (apaga todos os agendamentos futuros e agenda novamente)
 =======================================================
 """
 
@@ -40,6 +41,7 @@ from datetime import datetime, timedelta
 from logger_setup import get_logger
 from retry import chamar_youtube
 from telegram import notificar
+from banco import limpar_agendamentos
 try:
     from tiktok import tiktok as tiktok_client
     TIKTOK_DISPONIVEL = True
@@ -240,29 +242,32 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
     hashtags = []
     descricao = ""
 
-    conteudo = Path(caminho_txt).read_text(encoding="utf-8")
+    caminho_txt = corte.get("caminho_txt")
 
-    # Parte do TikTok
-    m = re.search(
-        r"==== TIKTOK ====(.*?)==== INFO ====",
-        conteudo,
-        re.S
-    )
+    if caminho_txt and Path(caminho_txt).exists():
+        conteudo = Path(caminho_txt).read_text(encoding="utf-8")
 
-    if m:
-        bloco = m.group(1)
+        # Parte do TikTok
+        m = re.search(
+            r"==== TIKTOK ====(.*?)==== INFO ====",
+            conteudo,
+            re.S
+        )
 
-        mt = re.search(r"TÍTULO:\s*(.*?)\n\n", bloco, re.S)
-        if mt:
-            titulo = mt.group(1).strip()
+        if m:
+            bloco = m.group(1)
 
-        md = re.search(r"DESCRIÇÃO:\s*(.*?)\n\n", bloco, re.S)
-        if md:
-            descricao = md.group(1).strip()
+            mt = re.search(r"TÍTULO:\s*(.*?)\n\n", bloco, re.S)
+            if mt:
+                titulo = mt.group(1).strip()
 
-        mh = re.search(r"HASHTAGS:\s*(.*)", bloco, re.S)
-        if mh:
-            hashtags = mh.group(1).split()
+            md = re.search(r"DESCRIÇÃO:\s*(.*?)\n\n", bloco, re.S)
+            if md:
+                descricao = md.group(1).strip()
+
+            mh = re.search(r"HASHTAGS:\s*(.*)", bloco, re.S)
+            if mh:
+                hashtags = mh.group(1).split()
 
     log(f"TikTok: postando '{titulo[:40]}...'", "YT")
 
@@ -356,12 +361,57 @@ def agendar_corte_automatico(corte_id, data_hora_str=None):
     log(f"Título: {corte.get('titulo','—')}")
     return dt
 
+def eh_video_ia(corte):
+    titulo = (corte.get("titulo_video") or "").lower()
+
+    palavras = [
+        "ia",
+        "chatgpt",
+        "openai",
+        "claude",
+        "gemini",
+        "inteligência artificial"
+    ]
+
+    return any(p in titulo for p in palavras)
+
+
+def montar_fila_publicacao(ia, podcasts):
+    """
+    IA
+    IA
+    IA
+    PODCAST
+    IA
+    IA
+    IA
+    PODCAST
+    """
+
+    fila = []
+
+    while ia or podcasts:
+
+        for _ in range(3):
+            if ia:
+                fila.append(ia.pop(0))
+
+        if podcasts:
+            fila.append(podcasts.pop(0))
+
+    return fila
+
 def agendar_lote():
     """Agenda todos os cortes prontos nos próximos horários ideais"""
     import banco
     banco.inicializar()
 
-    prontos = banco.listar_cortes(status="pronto")
+    todos = banco.listar_cortes(status="pronto")
+
+    ia = [c for c in todos if c["categoria"] == "ia"]
+    podcasts = [c for c in todos if c["categoria"] == "podcast"]
+
+    prontos = montar_fila_publicacao(ia, podcasts)
     if not prontos:
         log("Nenhum corte com status 'pronto' para agendar.", "AVISO")
         return
@@ -415,15 +465,16 @@ def agendar_lote():
 
     print(f"\n{'Corte':<6} {'Título':<35} {'Agendado para':<20}")
     print("─" * 65)
-
+    
     agendados_de_fato = 0
+    relatorio = []
     for corte, dt in zip(prontos, horarios_disponiveis):
         banco.agendar_corte(corte["id"], dt.strftime("%Y-%m-%d %H:%M:%S"))
         titulo_curto = (corte.get("titulo") or "—")[:33]
         print(f"  {corte['id']:<4}  {titulo_curto:<35}  {dt.strftime('%d/%m %H:%M')}")
-        notificar.short_agendado(
-            titulo=corte.get("titulo","Short"),
-            data_hora=dt.strftime("%d/%m/%Y às %H:%M")
+        relatorio.append(
+            f"📌 {corte.get('titulo', 'Short')}\n"
+            f"🕐 {dt.strftime('%d/%m/%Y às %H:%M')}"
         )
         agendados_de_fato += 1
 
@@ -433,6 +484,26 @@ def agendar_lote():
               f"disponível e permanecem com status 'pronto'.")
     else:
         print(f"\n✅ {agendados_de_fato} cortes agendados com intervalo mínimo de {INTERVALO_HORAS}h entre posts.")
+
+    if relatorio:
+        mensagem = (
+            f"📅 <b>Agendamento concluído</b>\n\n"
+            f"✅ {agendados_de_fato} vídeos foram agendados.\n\n"
+            + "\n\n".join(relatorio)
+        )
+
+        LIMITE = 3800
+
+        while mensagem:
+            parte = mensagem[:LIMITE]
+
+            if len(mensagem) > LIMITE:
+                corte = parte.rfind("\n\n")
+                if corte > 0:
+                    parte = parte[:corte]
+
+            notificar._enviar(parte, silencioso=True)
+            mensagem = mensagem[len(parte):].lstrip()
 
 def postar_agora(corte_id):
     """Faz upload imediato de um corte"""
@@ -592,6 +663,7 @@ def main():
                         help="Posta um corte imediatamente")
     parser.add_argument("--daemon",         action="store_true",
                         help="Roda em loop postando agendados automaticamente")
+    parser.add_argument("--reagendar",action="store_true",help="Apaga todos os agendamentos futuros e agenda novamente.")
     args = parser.parse_args()
 
     if args.auth:
@@ -613,6 +685,17 @@ def main():
 
     elif args.daemon:
         daemon()
+
+    elif args.reagendar:
+
+        total = limpar_agendamentos()
+
+        logger.info(
+            "Foram removidos %d agendamentos futuros.",
+            total
+        )
+
+        print(f"\n✓ {total} vídeos voltaram para PRONTO.\n")
 
     else:
         print("\n" + "═"*55)
