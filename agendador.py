@@ -377,27 +377,25 @@ def eh_video_ia(corte):
 
 
 def montar_fila_publicacao(ia, podcasts):
-    """
-    IA
-    IA
-    IA
-    PODCAST
-    IA
-    IA
-    IA
-    PODCAST
-    """
+    """Monta uma fila no padrão 3 vídeos de IA, 1 podcast."""
 
     fila = []
+    ia_restantes = list(ia)
+    podcasts_restantes = list(podcasts)
 
-    while ia or podcasts:
-
+    while ia_restantes and podcasts_restantes:
         for _ in range(3):
-            if ia:
-                fila.append(ia.pop(0))
+            if ia_restantes:
+                fila.append(ia_restantes.pop(0))
 
-        if podcasts:
-            fila.append(podcasts.pop(0))
+        if podcasts_restantes:
+            fila.append(podcasts_restantes.pop(0))
+
+    while ia_restantes:
+        fila.append(ia_restantes.pop(0))
+
+    while podcasts_restantes:
+        fila.append(podcasts_restantes.pop(0))
 
     return fila
 

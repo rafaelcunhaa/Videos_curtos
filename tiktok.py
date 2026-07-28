@@ -89,7 +89,7 @@ def fazer_login() -> bool:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,   # mostra o navegador para o usuário fazer login
+            headless=False,   # mostra o navegador para o usuário fazer login
             args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
         )
         context = browser.new_context(
@@ -161,7 +161,7 @@ def sessao_valida() -> bool:
 
     sync_playwright = _get_playwright()
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         _carregar_sessao(context)
         page = context.new_page()
@@ -239,7 +239,7 @@ class TikTokClient:
         sync_playwright = _get_playwright()
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True,   # headless em produção
+                headless=False,   # headless em produção
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             context = browser.new_context(
@@ -421,7 +421,8 @@ class TikTokClient:
                     try:
                         btn = page.wait_for_selector(selector, timeout=5000)
                         if btn and btn.is_enabled():
-                            btn.click()
+                            btn.scroll_into_view_if_needed()
+                            btn.click(force=True)
                             postado = True
                             break
                     except Exception:
@@ -435,7 +436,7 @@ class TikTokClient:
                     return None
 
                 # Aguardar confirmação de upload
-                page.wait_for_timeout(5000)
+                page.wait_for_url("**/manage*", timeout=60000)
 
                 # Verificar se houve confirmação visual de sucesso
                 try:
@@ -525,29 +526,6 @@ def main():
                         help="Instalar o navegador Chromium (necessário uma vez)")
     args = parser.parse_args()
 
-    txt = Path(args.postar).with_suffix(".txt")
-
-    if txt.exists():
-        conteudo = txt.read_text(encoding="utf-8")
-
-        # Pega apenas a seção do TikTok
-        parte = conteudo.split("=== TIKTOK ===")[1].split("=== INFO ===")[0]
-
-        # Extrai título
-        titulo = parte.split("TÍTULO:")[1].split("DESCRIÇÃO:")[0].strip()
-
-        # Extrai descrição
-        descricao = parte.split("DESCRIÇÃO:")[1].split("HASHTAGS:")[0].strip()
-
-        # Extrai hashtags
-        hashtags = parte.split("HASHTAGS:")[1].strip().split()
-
-        # Monta a legenda final
-        titulo = f"{titulo}\n\n{descricao}\n\n{' '.join(hashtags)}"
-
-    else:
-        titulo = args.titulo or Path(args.postar).stem
-
     # Setup logging
     try:
         from logger_setup import get_logger
@@ -581,11 +559,35 @@ def main():
 
 
     elif args.postar:
+
+        txt = Path(args.postar).with_suffix(".txt")
+
+        if txt.exists():
+            conteudo = txt.read_text(encoding="utf-8")
+
+            parte = conteudo.split("=== TIKTOK ===")[1].split("=== INFO ===")[0]
+
+            titulo = parte.split("TÍTULO:")[1].split("DESCRIÇÃO:")[0].strip()
+
+            descricao = parte.split("DESCRIÇÃO:")[1].split("HASHTAGS:")[0].strip()
+
+            hashtags = parte.split("HASHTAGS:")[1].strip().split()
+
+            titulo = (
+                f"{titulo}\n\n"
+                f"{descricao}\n\n"
+                f"{' '.join(hashtags)}"
+            )
+
+        else:
+            titulo = args.titulo or Path(args.postar).stem
+
         ref = tiktok.postar(
             caminho_video=args.postar,
             titulo=titulo,
             privacidade=args.privacidade,
         )
+
         if not ref:
             sys.exit(1)
 
