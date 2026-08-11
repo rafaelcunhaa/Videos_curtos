@@ -1,31 +1,62 @@
-# Credenciais — NUNCA versionar
-.env
-token.json
-credentials.json
-
-# Banco de dados
-banco_shorts.db
-banco_shorts.db-wal
-banco_shorts.db-shm
-
-# Pastas geradas automaticamente
-tiktok_session/
-.cache_fundos/
-output/
-cortes/
-fundos/
-musicas/
-downloads/
-temp_audio/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+
+# Ambiente virtual
+.venv/
+
+# Banco
+*.db
+*.sqlite3
 
 # Logs
 logs/
+*.log
 
-# Vídeos de saída (opcionais — podem ser grandes)
-# output/
+# Sessões
+tiktok_session/
 
-# Token TikTok
-token_tiktok.json
+# Build
+dist/
+build/
+
+# VSCode
+.vscode/
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# Black
+.cache/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Arquivos temporários
+temp/
+tmp/
+
+# Downloads
+downloads/
+
+# Saída dos vídeos
+output/
+
+# Credenciais
+*.json
+.env
+.env.*
+
+# Playwright
+playwright-report/

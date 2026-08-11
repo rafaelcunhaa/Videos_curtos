@@ -518,10 +518,28 @@ def postar_agora(corte_id):
     yt_id = fazer_upload(corte)
 
     if yt_id:
-        banco.atualizar_status_corte(corte_id, "postado", youtube_short_id=yt_id)
+        banco.atualizar_status_corte(
+            corte["id"],
+            "postado",
+            youtube_short_id=yt_id
+        )
+
         url_short = f"https://youtube.com/shorts/{yt_id}"
-        log(f"Status atualizado para 'postado' no banco.", "DB")
-        log(url_short, "YT")
+        log(f"✅ Postado no YouTube: {url_short}", "YT")
+
+        # Postar no TikTok
+        tiktok_id = fazer_upload_tiktok(corte)
+
+        # Só remove o arquivo quando o TikTok também tiver sido publicado
+        if tiktok_id:
+            limpar_video_apos_postagem(corte)
+        else:
+            log(
+                "TikTok não confirmou a postagem. "
+                "Vídeo mantido para nova tentativa.",
+                "AVISO"
+            )
+
         notificar.short_postado(
             titulo=corte.get("titulo_yt") or corte.get("titulo","Short"),
             url_short=url_short,
@@ -532,6 +550,28 @@ def postar_agora(corte_id):
         log("Upload falhou.", "ERRO")
         notificar.erro("agendador.py", f"Upload falhou para o corte {corte_id}")
         return False
+
+def excluir_video_local(caminho_video):
+    """Exclui o vídeo local depois que ele foi publicado."""
+    if not caminho_video:
+        return
+
+    arquivo = Path(caminho_video)
+
+    try:
+        if arquivo.exists():
+            tamanho = arquivo.stat().st_size / 1024 / 1024
+            arquivo.unlink()
+            log(
+                f"🗑️ Vídeo excluído do armazenamento: "
+                f"{arquivo.name} ({tamanho:.1f} MB)",
+                "DB"
+            )
+        else:
+            log(f"Vídeo já não existe: {arquivo}", "AVISO")
+
+    except Exception as e:
+        log(f"Não foi possível excluir o vídeo {arquivo}: {e}", "AVISO")
 
 def verificar_e_postar_agendados():
     """Verifica a fila e posta os que chegaram na hora"""
@@ -552,11 +592,15 @@ def verificar_e_postar_agendados():
             log(f"✅ Postado no YouTube: {url_short}", "YT")
             # Postar no TikTok também
             fazer_upload_tiktok(corte)
+
             notificar.short_postado(
                 titulo=corte.get("titulo_yt") or corte.get("titulo","Short"),
                 url_short=url_short,
                 duracao_s=corte.get("duracao_s", 0)
             )
+
+            # Excluir vídeo local após publicação
+            excluir_video_local(corte.get("caminho_video"))
         else:
             log(f"Falha no upload do corte {corte['id']}", "ERRO")
             notificar.erro(

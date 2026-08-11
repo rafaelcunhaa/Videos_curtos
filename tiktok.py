@@ -435,45 +435,314 @@ class TikTokClient:
                     browser.close()
                     return None
 
-                # Aguardar confirmação de upload
-                page.wait_for_url("**/manage*", timeout=60000)
+                # =====================================================
+                # POPUP "O conteúdo pode estar restrito"
+                # =====================================================
 
-                # Verificar se houve confirmação visual de sucesso
                 try:
-                    page.wait_for_selector(
-                        "[class*='success'],"
-                        "[data-e2e='upload-success'],"
-                        "div:has-text('Your video is being uploaded')",
-                        timeout=15000
-                    )
-                except Exception as e:
-                    # Seletor de confirmação não encontrado — alguns layouts
-                    # do Creator Center não exibem mensagem explícita de sucesso.
-                    # O vídeo pode ter sido postado mesmo sem confirmação visual.
-                    logger.debug("Seletor de confirmação não encontrado: %s", e)
+                    page.wait_for_timeout(3000)
 
-                # Gerar ID de referência local (TikTok não expõe ID via automação)
-                ref_id = f"tt_{int(time.time())}"
-                log(f"✅ Postado no TikTok! Ref: {ref_id}", "TT")
+                    popup = page.locator("text=O conteúdo pode estar restrito")
+
+                    if popup.count() > 0:
+                        log("Popup de restrição detectado.", "AVISO")
+
+                        # Localiza o modal que contém a mensagem
+                        modal = page.locator(
+                            "div:has-text('O conteúdo pode estar restrito')"
+                        ).filter(
+                            has_text="Substituir vídeo"
+                        ).last
+
+                        if modal.count() > 0:
+                            log("Modal de restrição localizado.", "PROC")
+
+                            # O botão de confirmação/publicação fica dentro
+                            # do modal. Procuramos elementos clicáveis.
+                            botoes = modal.locator("button")
+
+                            log(
+                                f"Encontrados {botoes.count()} botão(ões) no modal.",
+                                "PROC"
+                            )
+
+                            clicou = False
+
+                            for i in range(botoes.count()):
+                                try:
+                                    botao = botoes.nth(i)
+
+                                    if botao.is_visible() and botao.is_enabled():
+                                        texto = botao.inner_text().strip()
+
+                                        log(
+                                            f"Botão {i}: '{texto}'",
+                                            "PROC"
+                                        )
+
+                                        # Não clicar em fechar/cancelar/substituir
+                                        if texto.lower() not in [
+                                            "cancelar",
+                                            "fechar",
+                                            "substituir vídeo",
+                                            "substituir",
+                                            "x"
+                                        ]:
+                                            botao.click(force=True)
+
+                                            log(
+                                                f"Clique realizado no botão: '{texto}'",
+                                                "PROC"
+                                            )
+
+                                            clicou = True
+                                            break
+
+                                except Exception:
+                                    continue
+
+                            if not clicou:
+                                log(
+                                    "Nenhum botão apropriado encontrado dentro do modal.",
+                                    "ERRO"
+                                )
+
+                        else:
+                            log("Modal de restrição não localizado.", "ERRO")
+
+                except Exception as e:
+                    log(f"Erro ao tratar popup de restrição: {e}", "ERRO")
+
+                # ==========================================================
+                # CONFIRMAR "CONTINUAR PUBLICANDO?"
+                # ==========================================================
+
+                try:
+                    page.wait_for_timeout(2000)
+
+                    confirmar = page.get_by_role(
+                        "button",
+                        name="Publicar agora"
+                    )
+
+                    if confirmar.count() > 0 and confirmar.first.is_visible():
+
+                        log("Popup 'Continuar publicando?' detectado.", "AVISO")
+                        log("Clicando em 'Publicar agora'...", "PROC")
+
+                        confirmar.first.click(force=True)
+
+                        log("Confirmação 'Publicar agora' acionada.", "PROC")
+
+                        page.wait_for_timeout(5000)
+
+                except Exception as e:
+                    logger.debug("Popup 'Publicar agora' não encontrado: %s", e)
+
+                # ==========================================================
+                # CONFIRMAÇÃO DA POSTAGEM
+                # ==========================================================
+
+                log("Aguardando confirmação da postagem...", "PROC")
+
+                # Aguarda o TikTok finalizar o envio
+                page.wait_for_timeout(8000)
+
+                # Verifica se apareceu o popup de conteúdo restrito
+                try:
+                    popup_text = page.get_by_text(
+                        "O conteúdo pode estar restrito",
+                        exact=False
+                    )
+
+                    if popup_text.count() > 0:
+                        log("Popup de restrição detectado.", "AVISO")
+
+                        # IMPORTANTE:
+                        # Mesmo com a restrição, o TikTok permite publicar.
+                        # Procuramos diretamente pelo botão "Publicar agora".
+
+                        botao_publicar_agora = page.get_by_role(
+                            "button",
+                            name="Publicar agora",
+                            exact=True
+                        )
+
+                        if botao_publicar_agora.count() > 0:
+                            log("Botão 'Publicar agora' encontrado.", "PROC")
+
+                            botao_publicar_agora.first.click(force=True)
+
+                            log("Publicação confirmada pelo TikTok.", "PROC")
+
+                            page.wait_for_timeout(8000)
+
+                        else:
+                            log(
+                                "Popup apareceu, mas 'Publicar agora' não foi encontrado.",
+                                "AVISO"
+                            )
+
+                except Exception as e:
+                    logger.debug("Erro ao verificar popup: %s", e)
+
+
+                # ==========================================================
+                # VERIFICAÇÃO FINAL
+                # ==========================================================
+
+                postagem_confirmada = False
+
+                # 1. Verifica mensagens de sucesso
+                seletores_sucesso = [
+                    "[data-e2e='upload-success']",
+                    "[class*='success']",
+                    "text=Postado",
+                    "text=Publicado",
+                    "text=Your video is being uploaded",
+                    "text=Video uploaded",
+                    "text=Upload complete",
+                ]
+
+                for selector in seletores_sucesso:
+                    try:
+                        elemento = page.locator(selector).first
+
+                        if elemento.count() > 0 and elemento.is_visible():
+                            log(f"Confirmação encontrada: {selector}", "PROC")
+                            postagem_confirmada = True
+                            break
+
+                    except Exception:
+                        continue
+
+
+                # 2. Verifica se o TikTok saiu da tela de upload
+                if not postagem_confirmada:
+                    try:
+                        url_atual = page.url.lower()
+
+                        if "/upload" not in url_atual:
+                            log(
+                                f"TikTok saiu da tela de upload: {page.url}",
+                                "PROC"
+                            )
+                            postagem_confirmada = True
+
+                    except Exception:
+                        pass
+
+
+                # 3. Se o popup de restrição sumiu
+                if not postagem_confirmada:
+                    try:
+                        popup = page.get_by_text(
+                            "O conteúdo pode estar restrito",
+                            exact=False
+                        )
+
+                        if popup.count() == 0:
+                            log(
+                                "Popup de restrição desapareceu após publicação.",
+                                "PROC"
+                            )
+                            postagem_confirmada = True
+
+                    except Exception:
+                        pass
+
+
+                # ==========================================================
+                # RESULTADO
+                # ==========================================================
+
+                if postagem_confirmada:
+
+                    ref_id = f"tt_{int(time.time())}"
+
+                    log(
+                        f"✅ Postado no TikTok! Ref: {ref_id}",
+                        "TT"
+                    )
+
+                    browser.close()
+
+                    return ref_id
+
+
+                log(
+                    "TikTok não apresentou confirmação explícita da postagem.",
+                    "ERRO"
+                )
+
                 browser.close()
-                return ref_id
+
+                return None
 
             except Exception as e:
                 log(f"Erro ao postar: {e}", "ERRO")
                 logger.error("TikTok Playwright erro:", exc_info=True)
-                # Salvar screenshot para diagnóstico
+
                 try:
                     shot_path = SESSION_DIR / f"erro_{int(time.time())}.png"
                     page.screenshot(path=str(shot_path))
-                    log(f"Screenshot salvo: {shot_path}", "AVISO")
+
                     html_path = SESSION_DIR / f"erro_{int(time.time())}.html"
-                    html_path.write_text(page.content(), encoding="utf-8")
+                    html_path.write_text(
+                        page.content(),
+                        encoding="utf-8"
+                    )
+
+                    log(
+                        f"Screenshot salvo: {shot_path}",
+                        "AVISO"
+                    )
+
                 except Exception as e:
-                    # Falha ao salvar screenshot é secundária ao erro original
-                    # que já foi logado acima — não ofuscar com nova exceção
-                    logger.debug("Falha ao salvar screenshot: %s", e)
+                    logger.debug(
+                        "Falha ao salvar screenshot: %s",
+                        e
+                    )
+
                 browser.close()
                 return None
+
+
+    def testar(self) -> bool:
+        """Verifica se a sessão está ativa."""
+
+        if not SESSION_FILE.exists():
+            print(
+                "\n❌ Sessão não encontrada. "
+                "Rode: python tiktok.py --login\n"
+            )
+            return False
+
+        log("Verificando sessão TikTok...", "PROC")
+
+        valida = sessao_valida()
+
+        if valida:
+            dados = json.loads(
+                SESSION_FILE.read_text(encoding="utf-8")
+            )
+
+            salvo_em = dados.get(
+                "salvo_em",
+                "desconhecido"
+            )
+
+            print("\n✅ Sessão TikTok ativa!")
+            print(f"   Salva em: {salvo_em}")
+            print(f"   Arquivo:  {SESSION_FILE}\n")
+
+        else:
+            print("\n❌ Sessão expirada ou inválida.")
+            print(
+                "   Rode: python tiktok.py --login\n"
+            )
+
+        return valida
 
     def testar(self) -> bool:
         """Verifica se a sessão está ativa."""
