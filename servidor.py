@@ -18,19 +18,23 @@
 """
 
 import asyncio
+import importlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (FileResponse, JSONResponse,
                                 StreamingResponse, HTMLResponse)
@@ -42,6 +46,8 @@ BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
 
 from logger_setup import get_logger
+import banco
+from constantes import TAXA_CAMBIO_USD_BRL, MAX_LOGS_BUFFER, EXTENSOES_VIDEO_VALIDAS
 logger = get_logger(__name__)
 
 # ── Estado global do servidor ──────────────────────────
@@ -52,6 +58,56 @@ _estado = {
     "logs_buffer":     [],       # buffer de logs para SSE
     "ultimo_pipeline": None,
 }
+
+# ── Rate Limiting Simples ──────────────────────────────
+# Rastreia requisições por IP para prevenir abuso
+_rate_limit_store = defaultdict(list)
+
+def check_rate_limit(request: Request, max_requests: int, window_seconds: int):
+    """
+    Verifica se o cliente excedeu o limite de requisições.
+
+    Args:
+        request: Request do FastAPI
+        max_requests: Número máximo de requisições permitidas
+        window_seconds: Janela de tempo em segundos
+
+    Raises:
+        HTTPException(429): Se limite for excedido
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    agora = datetime.now()
+
+    # Limpar requisições antigas da janela
+    janela_inicio = agora - timedelta(seconds=window_seconds)
+    _rate_limit_store[client_ip] = [
+        ts for ts in _rate_limit_store[client_ip]
+        if ts > janela_inicio
+    ]
+
+    # Verificar limite
+    if len(_rate_limit_store[client_ip]) >= max_requests:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limite de {max_requests} requisições por {window_seconds}s excedido. Tente novamente em alguns segundos."
+        )
+
+    # Registrar esta requisição
+    _rate_limit_store[client_ip].append(agora)
+
+def secure_path(*parts: str) -> Path:
+    """
+    Constrói um caminho seguro dentro de BASE_DIR, impedindo path traversal.
+    Remove '..' e componentes absolutos de cada parte.
+    """
+    base = BASE_DIR.resolve()
+    caminho = base
+    for p in parts:
+        nome = Path(str(p)).name  # descarta diretórios e '..'
+        caminho = caminho / nome
+    if not str(caminho.resolve()).startswith(str(base)):
+        raise ValueError(f"Caminho fora do diretório permitido: {caminho}")
+    return caminho
 
 MAX_LOGS_BUFFER = 500
 
@@ -137,10 +193,9 @@ async def logs_stream():
 async def get_stats():
     """Retorna estatísticas gerais do banco."""
     try:
-        import banco
         banco.inicializar()
         s = banco.stats()
-        custo_brl = s.get("custo_total_usd", 0) * 5.6
+        custo_brl = s.get("custo_total_usd", 0) * TAXA_CAMBIO_USD_BRL
         return {
             "total_videos":   s.get("total_videos", 0),
             "total_cortes":   s.get("total_cortes", 0),
@@ -162,7 +217,6 @@ async def get_stats():
 async def get_cortes(status: Optional[str] = None, limit: int = 50):
     """Lista cortes do banco com filtro opcional por status."""
     try:
-        import banco
         banco.inicializar()
         cortes = banco.listar_cortes(status=status)[:limit]
         return {"cortes": cortes, "total": len(cortes)}
@@ -175,7 +229,6 @@ async def get_cortes(status: Optional[str] = None, limit: int = 50):
 async def get_videos(limit: int = 50):
     """Lista vídeos do banco."""
     try:
-        import banco
         banco.inicializar()
         videos = banco.listar_videos()[:limit]
         return {"videos": videos, "total": len(videos)}
@@ -188,7 +241,6 @@ async def get_videos(limit: int = 50):
 async def get_proximas_postagens():
     """Retorna próximas postagens agendadas."""
     try:
-        import banco
         banco.inicializar()
         agendados = banco.listar_cortes(status="agendado")
         # Ordenar por agendado_para
@@ -208,8 +260,11 @@ class GerarRequest(BaseModel):
 
 
 @app.post("/api/gerar")
-async def gerar_conteudo(req: GerarRequest, bg: BackgroundTasks):
+async def gerar_conteudo(req: GerarRequest, bg: BackgroundTasks, request: Request):
     """Gera vídeos originais em background e envia logs via SSE."""
+    # Rate limit: máximo 5 gerações por hora (custa API)
+    check_rate_limit(request, max_requests=5, window_seconds=3600)
+
     if _estado["processando"]:
         raise HTTPException(409, "Já há um processo em execução")
 
@@ -318,12 +373,20 @@ class YouTubeRequest(BaseModel):
 
 
 @app.post("/api/youtube/processar")
-async def processar_youtube(req: YouTubeRequest, bg: BackgroundTasks):
+async def processar_youtube(req: YouTubeRequest, bg: BackgroundTasks, request: Request):
     """Baixa e processa um vídeo do YouTube em background."""
+    # Rate limit: máximo 10 vídeos por hora (custa API + bandwidth)
+    check_rate_limit(request, max_requests=10, window_seconds=3600)
+
     if _estado["processando"]:
         raise HTTPException(409, "Já há um processo em execução")
-    if not req.url.startswith("http"):
-        raise HTTPException(400, "URL inválida")
+
+    # Validação melhorada de URL do YouTube
+    import re
+    YOUTUBE_REGEX = r'^https?://(www\.)?(youtube\.com|youtu\.be)/.+'
+    if not re.match(YOUTUBE_REGEX, req.url):
+        raise HTTPException(400, "URL inválida. Deve ser do YouTube (youtube.com ou youtu.be)")
+
     bg.add_task(_task_youtube, req.url, req.modelo, req.forcar)
     return {"status": "iniciado", "url": req.url}
 
@@ -366,14 +429,24 @@ async def _task_youtube(url: str, modelo: str, forcar: bool):
 # ── Vídeo local ──────────────────────────────────────
 
 @app.post("/api/local/processar")
-async def processar_local(bg: BackgroundTasks, arquivo: UploadFile = File(...)):
+async def processar_local(request: Request, bg: BackgroundTasks, arquivo: UploadFile = File(...)):
     """Recebe upload de vídeo e processa em background."""
     if _estado["processando"]:
         raise HTTPException(409, "Já há um processo em execução")
 
-    # Salvar arquivo temporário
-    ext      = Path(arquivo.filename or "video.mp4").suffix or ".mp4"
-    tmp_path = BASE_DIR / "downloads" / f"upload_{datetime.now().strftime('%H%M%S')}{ext}"
+    # Validar extensão de arquivo
+    filename = arquivo.filename or "video.mp4"
+    ext = Path(filename).suffix.lower()
+
+    if ext not in EXTENSOES_VIDEO_VALIDAS:
+        raise HTTPException(400, f"Extensão não permitida. Use: {', '.join(EXTENSOES_VIDEO_VALIDAS)}")
+
+    # Sanitizar nome do arquivo (prevenir path traversal)
+    nome_seguro = Path(filename).name  # remove qualquer path, mantém só o nome
+    timestamp = datetime.now().strftime('%H%M%S')
+
+    # Salvar arquivo temporário com nome seguro
+    tmp_path = secure_path("downloads", f"upload_{timestamp}_{nome_seguro}")
     tmp_path.parent.mkdir(exist_ok=True)
 
     conteudo = await arquivo.read()
@@ -427,7 +500,6 @@ async def _task_agendar_lote():
     try:
         _push_log("→ Agendando vídeos prontos...", "info")
         from agendador import agendar_lote
-        import banco
         banco.inicializar()
         # Rodar em thread para não bloquear event loop
         loop = asyncio.get_event_loop()
@@ -442,7 +514,6 @@ async def _task_agendar_lote():
 async def agendar_corte(corte_id: int, data_hora: Optional[str] = None):
     """Agenda um corte específico."""
     try:
-        import banco
         banco.inicializar()
         from agendador import agendar_corte_automatico
         loop = asyncio.get_event_loop()
@@ -487,7 +558,6 @@ async def iniciar_daemon():
         _push_log("→ Daemon iniciado — verificando fila a cada 5 min", "ok")
         while _estado["daemon_ativo"]:
             try:
-                import banco
                 banco.inicializar()
                 from agendador import verificar_e_postar_agendados
                 loop = asyncio.get_event_loop()
@@ -569,7 +639,6 @@ async def get_analytics_dados():
     """Retorna dados de métricas para os gráficos da interface."""
     try:
         from analytics import _carregar_dados_para_analise, obter_ultima_recomendacao
-        import banco
         banco.inicializar()
         dados = _carregar_dados_para_analise()
         rec   = obter_ultima_recomendacao()
@@ -632,7 +701,7 @@ async def salvar_config(req: ConfigRequest):
         config_path.write_text(src, encoding="utf-8")
 
         # Recarregar config
-        import importlib, config
+        import config
         importlib.reload(config)
 
         _push_log("✅ Configurações salvas", "ok")
@@ -645,7 +714,6 @@ async def salvar_config(req: ConfigRequest):
 
 def _substituir_valor(src: str, campo: str, novo_valor: str) -> str:
     """Substitui valor de um campo no config.py preservando indentação."""
-    import re
     return re.sub(
         rf'(\s+{campo}\s*=\s*)([^\n]+)',
         rf'\g<1>{novo_valor}',
@@ -665,7 +733,7 @@ async def testar_conexoes():
             import anthropic
             cliente = anthropic.Anthropic(api_key=cfg.chave_anthropic)
             cliente.messages.create(
-                model="claude-haiku-4-5",
+                model="claude-haiku-4",
                 max_tokens=5,
                 messages=[{"role":"user","content":"ok"}]
             )
@@ -739,12 +807,13 @@ async def listar_output():
 @app.get("/api/output/download/{nome}")
 async def download_output(nome: str):
     """Faz download de um arquivo da pasta output/."""
-    # Sanitizar nome de arquivo para evitar path traversal
-    nome_safe = Path(nome).name
-    path      = BASE_DIR / "output" / nome_safe
-    if not path.exists() or not str(path).startswith(str(BASE_DIR / "output")):
+    try:
+        path = secure_path("output", nome)
+    except ValueError:
         raise HTTPException(404, "Arquivo não encontrado")
-    return FileResponse(str(path), filename=nome_safe)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "Arquivo não encontrado")
+    return FileResponse(str(path), filename=path.name)
 
 
 # ── Health ───────────────────────────────────────────
@@ -764,6 +833,16 @@ async def health():
 if __name__ == "__main__":
     import webbrowser, threading
 
+    # Validar configuração antes de iniciar o servidor
+    from config import cfg
+    erros = cfg.validar_chaves()
+    if erros:
+        print("\n❌ Configuração incompleta:")
+        for e in erros:
+            print(f"\n{e}")
+        print("\nCorrija o .env e tente novamente.")
+        sys.exit(1)
+
     print("\n" + "═"*55)
     print("  BoomVibes — Dashboard Local")
     print("═"*55)
@@ -772,7 +851,6 @@ if __name__ == "__main__":
 
     # Abrir navegador após 1.5s
     def abrir_browser():
-        import time
         time.sleep(1.5)
         webbrowser.open("http://localhost:8000")
 

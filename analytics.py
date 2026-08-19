@@ -33,18 +33,25 @@
 import json
 import logging
 import sys
+import re
 import argparse
+import anthropic
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional
+from retry import chamar_anthropic
+import banco
+from config import cfg
+try:
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+except ImportError:
+    Credentials = None
+    Request = None
+    build = None
 
 logger = logging.getLogger(__name__)
-
-# Importar configuração global
-try:
-    from config import cfg
-except Exception:
-    cfg = None  # type: ignore
 
 # ── Tabela de métricas no banco ───────────────────────────
 SQL_CRIAR_METRICAS = """
@@ -79,7 +86,6 @@ CREATE INDEX IF NOT EXISTS idx_metricas_data  ON metricas(data_ref);
 
 def _garantir_tabelas():
     """Cria tabelas de métricas se não existirem."""
-    import banco
     with banco.get_conn() as conn:
         conn.executescript(SQL_CRIAR_METRICAS)
 
@@ -88,9 +94,9 @@ def _garantir_tabelas():
 
 def _autenticar_youtube():
     """Reutiliza autenticação do agendador."""
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
+    if not Credentials or not Request or not build:
+        logger.error("google-auth / googleapiclient não instalados")
+        return None, None
 
     TOKEN_FILE = "token.json"
     SCOPES     = [
@@ -115,6 +121,7 @@ def _autenticar_youtube():
 
 def _obter_channel_id(yt) -> Optional[str]:
     """Retorna o channel_id da conta autenticada."""
+    # yt is a googleapiclient.discovery.Resource; typed as Any to avoid heavy import
     try:
         res = yt.channels().list(part="id", mine=True).execute()
         items = res.get("items", [])
@@ -133,6 +140,7 @@ def _buscar_metricas_video(analytics, channel_id: str,
     Busca métricas de um vídeo específico via YouTube Analytics API.
     Retorna dict com todas as métricas ou vazio em falha.
     """
+    # analytics is a googleapiclient.discovery.Resource
     try:
         res = analytics.reports().query(
             ids=f"channel=={channel_id}",
@@ -184,7 +192,6 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
     """
     _garantir_tabelas()
 
-    import banco
     banco.inicializar()
 
     resultado = {"coletados": 0, "erros": 0, "sem_dados": 0}
@@ -282,8 +289,7 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
 
 def _carregar_dados_para_analise() -> dict:
     """Carrega todos os dados de métricas para análise."""
-    import banco
-
+    
     with banco.get_conn() as conn:
         # Dados por formato
         por_formato = conn.execute("""
@@ -369,10 +375,6 @@ def analisar_com_ia() -> Optional[dict]:
     Envia métricas para Claude analisar e gerar recomendações.
     Salva recomendações no banco para uso pelo gerador_conteudo.py
     """
-    import banco
-    import anthropic
-    from retry import chamar_anthropic
-
     _garantir_tabelas()
     banco.inicializar()
 
@@ -450,7 +452,6 @@ Seja específico e baseado nos dados — não genérico.
             messages=[{"role": "user", "content": prompt}]
         )
 
-        import re
         texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
         recomendacoes = json.loads(texto)
 
@@ -472,7 +473,6 @@ Seja específico e baseado nos dados — não genérico.
 
 def obter_ultima_recomendacao() -> Optional[dict]:
     """Retorna a última recomendação da IA salva no banco."""
-    import banco
     _garantir_tabelas()
 
     try:
@@ -500,7 +500,6 @@ def obter_ultima_recomendacao() -> Optional[dict]:
 
 def imprimir_relatorio():
     """Imprime relatório completo de performance."""
-    import banco
     _garantir_tabelas()
     banco.inicializar()
 
@@ -570,23 +569,18 @@ def imprimir_relatorio():
 
 def imprimir_top(quantidade: int = 10):
     """Imprime os top N vídeos."""
-    import banco
     _garantir_tabelas()
 
     with banco.get_conn() as conn:
-        # nosec B608 — 'quantidade' é forçado a int() antes da interpolação;
-        # qualquer valor não numérico levanta ValueError aqui, nunca chega
-        # a ser interpolado como texto livre no SQL. Não há dado de usuário
-        # cru entrando na string — apenas um inteiro validado por coerção.
-        rows = conn.execute(f"""
+        rows = conn.execute("""
             SELECT c.titulo, c.tipo, c.duracao_s,
                    m.views, m.likes, m.retencao_pct,
                    m.inscritos_ganhos, c.postado_em
             FROM cortes c
             JOIN metricas m ON m.corte_id = c.id
             ORDER BY m.views DESC
-            LIMIT {int(quantidade)}
-        """).fetchall()
+            LIMIT ?
+        """, (int(quantidade),)).fetchall()
 
     if not rows:
         print("  Nenhuma métrica disponível ainda.")

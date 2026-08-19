@@ -1,62 +1,55 @@
-# Python
+# Ambiente Python
+.venv/
+venv/
 __pycache__/
 *.py[cod]
-*.pyo
 
-# Ambiente virtual
-.venv/
-
-# Banco
+# Banco de dados
 *.db
+*.sqlite
 *.sqlite3
 
 # Logs
 logs/
 *.log
 
-# Sessões
+# Sessão TikTok
 tiktok_session/
+tiktok_session/*
+session.json
 
-# Build
-dist/
-build/
-
-# VSCode
-.vscode/
-
-# Pytest
-.pytest_cache/
-
-# Coverage
-.coverage
-htmlcov/
-
-# Ruff
-.ruff_cache/
-
-# Black
-.cache/
-
-# Mac
-.DS_Store
-
-# Windows
-Thumbs.db
-
-# Arquivos temporários
+# Arquivos gerados
+output/
 temp/
 tmp/
 
-# Downloads
-downloads/
+# Vídeos
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
 
-# Saída dos vídeos
-output/
+# Áudios
+*.mp3
+*.wav
+*.aac
+*.m4a
 
-# Credenciais
-*.json
+# Arquivos de configuração/secrets
 .env
 .env.*
+!.env.example
 
-# Playwright
-playwright-report/
+# Credenciais OAuth (YouTube/TikTok/Google)
+credentials.json
+token.json
+*.json
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema
+Thumbs.db
+.DS_Store

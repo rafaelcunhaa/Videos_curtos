@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
+from constantes import TAXA_CAMBIO_USD_BRL, TIMEOUT_TELEGRAM_API
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class _Notificador:
         }
 
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=TIMEOUT_TELEGRAM_API) as client:
                 res = client.post(url, json=body)
                 if res.status_code == 200:
                     return True
@@ -165,7 +166,7 @@ class _Notificador:
                             sucesso: int, custo_usd: float = 0.0) -> None:
         """Avisa quando um pipeline terminar."""
         icone = _EMOJI["sucesso"] if sucesso == total else _EMOJI["aviso"]
-        custo_brl = custo_usd * 5.6
+        custo_brl = custo_usd * TAXA_CAMBIO_USD_BRL
         texto = (
             f"{icone} <b>Pipeline concluído: {origem}</b>\n\n"
             f"🎬 Vídeos: {sucesso}/{total} gerados\n"
@@ -177,7 +178,7 @@ class _Notificador:
     def resumo_diario(self, gerados: int, postados: int,
                        agendados: int, custo_usd: float) -> None:
         """Resumo diário — enviado silenciosamente para não acordar."""
-        custo_brl = custo_usd * 5.6
+        custo_brl = custo_usd * TAXA_CAMBIO_USD_BRL
         texto = (
             f"{_EMOJI['resumo']} <b>Resumo do dia</b> — "
             f"{datetime.now().strftime('%d/%m/%Y')}\n\n"
@@ -191,7 +192,7 @@ class _Notificador:
     def saldo_baixo(self, custo_total_usd: float,
                     limite_usd: float = 5.0) -> None:
         """Avisa quando o gasto acumulado ultrapassar um limite."""
-        custo_brl = custo_total_usd * 5.6
+        custo_brl = custo_total_usd * TAXA_CAMBIO_USD_BRL
         texto = (
             f"{_EMOJI['aviso']} <b>Atenção: gasto de API alto</b>\n\n"
             f"💳 Total gasto: ${custo_total_usd:.4f} (~R${custo_brl:.2f})\n"

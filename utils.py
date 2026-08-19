@@ -11,6 +11,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def log(msg: str, nivel: str = "INFO") -> None:
 
 # ─── FFPROBE ─────────────────────────────────────────────
 
-def obter_duracao(caminho) -> float:
+def obter_duracao(caminho: Path) -> float:
     """Retorna duração em segundos via ffprobe. Retorna 0.0 em falha."""
     try:
         cmd = [
@@ -48,7 +49,7 @@ def obter_duracao(caminho) -> float:
         logger.warning("Falha ao obter duração de %s: %s", caminho, e)
     return 0.0
 
-def obter_info_video(caminho) -> dict:
+def obter_info_video(caminho: Path) -> dict:
     """Retorna dict com largura, altura, fps, duracao, tem_audio."""
     info = {"duracao": 0.0, "largura": 0, "altura": 0, "fps": 30.0, "tem_audio": False}
     try:
@@ -190,7 +191,7 @@ def nome_seguro(texto: str, max_len: int = 35) -> str:
 
 # ─── PARSER JSON ROBUSTO ─────────────────────────────────
 
-def parse_json_robusto(texto: str):
+def parse_json_robusto(texto: str) -> Any:
     """
     Tenta parsear JSON retornado pela IA.
     Remove markdown fences e tenta extrair array/objeto se necessário.
@@ -211,8 +212,8 @@ def parse_json_robusto(texto: str):
 
 # ─── CUSTO API ───────────────────────────────────────────
 
-def calcular_custo_claude(usage) -> float:
-    """Calcula custo aproximado em USD para claude-sonnet-4-6."""
+def calcular_custo_claude(usage: Any) -> float:
+    """Calcula custo aproximado em USD para claude-sonnet-4."""
     # $3/M tokens input, $15/M tokens output
     return (usage.input_tokens * 3 + usage.output_tokens * 15) / 1_000_000
 

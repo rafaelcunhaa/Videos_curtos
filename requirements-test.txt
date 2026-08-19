@@ -1,0 +1,49 @@
+# ══════════════════════════════════════════════════════════
+# DEPENDÊNCIAS DE TESTE
+# ══════════════════════════════════════════════════════════
+# Instale com: pip install -r requirements-test.txt
+#
+# Para rodar os testes:
+#   pytest                          # todos os testes
+#   pytest -v                       # verbose
+#   pytest -k "test_security"       # só testes de segurança
+#   pytest -m "unit"                # só testes unitários
+#   pytest --cov                    # com cobertura
+# ══════════════════════════════════════════════════════════
+
+# Framework de testes
+pytest>=8.0.0
+pytest-cov>=4.1.0           # Coverage
+pytest-xdist>=3.5.0         # Paralelização de testes
+pytest-timeout>=2.2.0       # Timeout para testes lentos
+pytest-asyncio>=0.23.0      # Testes assíncronos
+
+# Mocking e fixtures
+pytest-mock>=3.12.0         # Helpers de mock
+responses>=0.24.0           # Mock de requests HTTP
+freezegun>=1.4.0            # Mock de datetime
+faker>=22.0.0               # Geração de dados fake
+
+# HTTP Testing
+httpx>=0.26.0               # Cliente HTTP assíncrono
+requests-mock>=1.11.0       # Mock de requests
+
+# FastAPI Testing
+httpx>=0.26.0               # Usado pelo TestClient do FastAPI
+
+# Code Quality
+# pytest-pylint>=0.21.0     # Lint durante testes (desabilitado - conflito)
+# pytest-flake8>=1.1.1      # Style check (desabilitado - conflito com pytest 8+)
+black>=24.0.0               # Formatter
+isort>=5.13.0               # Import sorting
+mypy>=1.8.0                 # Type checking
+flake8>=7.0.0               # Lint standalone (use: flake8 . )
+
+# Segurança
+bandit>=1.7.6               # Security linter
+safety>=3.0.0               # Check de vulnerabilidades
+
+# Utilitários
+pytest-html>=4.1.1          # Relatórios HTML
+pytest-json-report>=1.5.0   # Relatórios JSON
+pytest-benchmark>=4.0.0     # Benchmarking

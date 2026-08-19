@@ -37,16 +37,24 @@
 import os, sys, json, re, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
+from typing import Any, Optional
 from logger_setup import get_logger
 from retry import chamar_anthropic
 from telegram import notificar
+import banco
+from config import cfg
+from constantes import CORES_ASS, EXTENSOES_VIDEO_VALIDAS
+try:
+    import whisper
+except ImportError:
+    whisper = None
+import anthropic
 
 logger = get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════
 #  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
-from config import cfg
 
 CHAVE_ANTHROPIC    = cfg.chave_anthropic
 MODELO_CLAUDE      = cfg.modelo_claude
@@ -65,10 +73,9 @@ DURACAO_GLOBAL_MAX = cfg.duracao_global_max
 GERAR_DESCRICAO    = True
 # ═══════════════════════════════════════════════════════
 
-CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
-EXTENSOES_VALIDAS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".flv"}
+# CORES_ASS e EXTENSOES_VALIDAS agora vêm de constantes.py
 
-def log(msg, nivel="INFO"):
+def log(msg: str, nivel: str = "INFO") -> None:
     hora = datetime.now().strftime("%H:%M:%S")
     p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","IA":"🤖","DB":"🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
@@ -78,7 +85,7 @@ def log(msg, nivel="INFO"):
 
 # ─── VERIFICAÇÃO ─────────────────────────────────────────
 
-def verificar_deps():
+def verificar_deps() -> None:
     erros = []
     if not shutil.which("ffmpeg"):
         erros.append("FFmpeg não instalado → https://ffmpeg.org/download.html")
@@ -102,10 +109,10 @@ def verificar_deps():
 
 # ─── INFO DO VÍDEO ───────────────────────────────────────
 
-def obter_info_video(caminho):
+def obter_info_video(caminho: Path) -> dict:
     cmd = ["ffprobe","-v","quiet","-print_format","json",
            "-show_streams","-show_format", str(caminho)]
-    res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffprobe)
     dados = json.loads(res.stdout)
     info  = {"duracao":0,"largura":0,"altura":0,"fps":30,"tem_audio":False}
     for s in dados.get("streams",[]):
@@ -125,8 +132,9 @@ def obter_info_video(caminho):
 
 # ─── ETAPA 1: TRANSCRIÇÃO ────────────────────────────────
 
-def transcrever(caminho_video):
-    import whisper
+def transcrever(caminho_video: Path) -> list:
+    if not whisper:
+        raise RuntimeError("whisper não instalado → pip install openai-whisper")
     log(f"Transcrevendo com Whisper ({MODELO_WHISPER})...", "PROC")
     modelo = whisper.load_model(MODELO_WHISPER)
     idioma = None if IDIOMA == "auto" else IDIOMA
@@ -135,7 +143,7 @@ def transcrever(caminho_video):
     log(f"Transcrição: {len(segmentos)} segmentos")
     return segmentos
 
-def segmentos_para_texto(segmentos):
+def segmentos_para_texto(segmentos: list) -> str:
     linhas = []
     for s in segmentos:
         ini = f"{int(s['start']//60):02d}:{int(s['start']%60):02d}"
@@ -145,8 +153,7 @@ def segmentos_para_texto(segmentos):
 
 # ─── ETAPA 2: IA SELECIONA CORTES ────────────────────────
 
-def ia_selecionar_cortes(transcricao_texto, duracao_total, titulo):
-    import anthropic
+def ia_selecionar_cortes(transcricao_texto: str, duracao_total: float, titulo: str) -> tuple:
     log("IA analisando e selecionando cortes...", "IA")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
@@ -194,8 +201,7 @@ Responda SOMENTE com JSON puro, sem markdown, sem explicação:
     log(f"IA selecionou {len(cortes)} cortes (custo: ${custo_usd:.4f})", "IA")
     return cortes, custo_usd
 
-def ia_gerar_descricao(corte, titulo_video):
-    import anthropic
+def ia_gerar_descricao(corte: dict, titulo_video: str):
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
     prompt  = f"""Crie conteúdo de publicação para um TikTok e YouTube Short religioso.
 
@@ -224,7 +230,7 @@ Responda SOMENTE com JSON puro, sem markdown:
 
 # ─── ETAPA 3: CORTAR VÍDEO ───────────────────────────────
 
-def cortar_video(caminho_video, cortes, pasta_saida):
+def cortar_video(caminho_video: Path, cortes: list, pasta_saida: Path) -> list:
     pasta_saida = Path(pasta_saida)
     pasta_saida.mkdir(parents=True, exist_ok=True)
     arquivos = []
@@ -245,7 +251,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
                "-i",str(caminho_video),"-c","copy",
                "-avoid_negative_ts","make_zero", str(dest)]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_corte)
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -256,7 +262,7 @@ def cortar_video(caminho_video, cortes, pasta_saida):
 
 # ─── ETAPA 4: GERAR LEGENDA ASS ──────────────────────────
 
-def gerar_ass(segmentos, inicio_corte, fim_corte, caminho_saida):
+def gerar_ass(segmentos: list, inicio_corte: float, fim_corte: float, caminho_saida: Path) -> None:
     cor    = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -271,7 +277,7 @@ Style: Default,Arial,{TAMANHO_FONT},{cor},&H000000FF,&H00000000,&H80000000,-1,0,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    def t2ass(s):
+    def t2ass(s: float) -> str:
         h=int(s//3600); m=int((s%3600)//60); sc=s%60
         return f"{h}:{m:02d}:{sc:05.2f}"
 
@@ -294,7 +300,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ─── ETAPA 5: PROCESSAR PARA TIKTOK + SHORTS ─────────────
 
-def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
+def processar_corte(arquivo_corte: dict, segmentos: list, pasta_saida: Path, titulo_video: str):
     caminho_entrada = arquivo_corte["caminho"]
     corte           = arquivo_corte["corte"]
     inicio_corte    = float(corte["inicio"])
@@ -348,7 +354,7 @@ def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
             str(caminho_out)
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_encode)
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0
@@ -384,7 +390,7 @@ def processar_corte(arquivo_corte, segmentos, pasta_saida, titulo_video):
 
 # ─── PIPELINE PRINCIPAL ───────────────────────────────────
 
-def pipeline(caminho_video, forcar=False):
+def pipeline(caminho_video: Path, forcar: bool = False) -> list:
     caminho_video = Path(caminho_video)
 
     if not caminho_video.exists():
@@ -397,13 +403,8 @@ def pipeline(caminho_video, forcar=False):
         sys.exit(1)
 
     # Importar banco
-    try:
-        import banco
-        banco.inicializar()
-        usar_banco = True
-    except ImportError:
-        log("banco.py não encontrado — rodando sem banco", "AVISO")
-        usar_banco = False
+    banco.inicializar()
+    usar_banco = True
 
     titulo = caminho_video.stem.replace("_"," ").replace("-"," ")
 
@@ -543,7 +544,7 @@ def pipeline(caminho_video, forcar=False):
 
 # ─── MODO PASTA ───────────────────────────────────────────
 
-def processar_pasta(pasta, forcar=False):
+def processar_pasta(pasta: Path, forcar: bool = False) -> None:
     pasta    = Path(pasta)
     videos   = [f for f in pasta.iterdir() if f.suffix.lower() in EXTENSOES_VALIDAS]
 

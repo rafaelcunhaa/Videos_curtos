@@ -22,7 +22,7 @@ class Config:
     chave_elevenlabs: str = field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY", ""))
     telegram_token:   str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
-    modelo_claude:    str = "claude-sonnet-4-6"
+    modelo_claude:    str = "claude-sonnet-4"
 
     # ── Pastas ────────────────────────────────────────
     pasta_downloads:  Path = Path("downloads")
@@ -62,8 +62,16 @@ class Config:
     # Distribuição da fila
     proporcao_ia:         int   = 3
     proporcao_podcast:    int   = 1
+    postar_tiktok:        bool  = True
 
     voz_elevenlabs_id:    str   = "pNInz6obpgDQGcFmaJgB"
+
+    # ── Timeouts (segundos) ───────────────────────────
+    # Timeouts diferenciados por tipo de operação para evitar travamentos
+    timeout_ffprobe:      int   = 30   # leitura de metadados - rápido
+    timeout_ffmpeg_corte: int   = 120  # corte com -c copy - relativamente rápido
+    timeout_ffmpeg_encode:int   = 300  # recodificação completa - pode ser lento
+    timeout_whisper:      int   = 600  # transcrição - varia muito com tamanho do vídeo
 
     def __post_init__(self):
         for f in ['pasta_downloads','pasta_cortes','pasta_prontos',
@@ -78,16 +86,90 @@ class Config:
                       self.pasta_logs]:
             pasta.mkdir(parents=True, exist_ok=True)
 
-    def validar_chaves(self) -> list[str]:
-        """Retorna lista de erros de configuração."""
-        erros = []
+    def validar_chaves(self) -> dict[str, list[str]]:
+        """
+        Retorna dict com chaves obrigatórias e opcionais.
+        Uso geral (run_diario): checa tudo e decide o que bloqueia.
+        """
+        obrigatorios = []
+        opcionais = []
+
+        # Sempre obrigatório
         if not self.chave_anthropic:
-            erros.append(
+            obrigatorios.append(
                 "ANTHROPIC_API_KEY não configurada.\n"
                 "  1. Copie .env.example para .env\n"
                 "  2. Preencha ANTHROPIC_API_KEY=sk-ant-SuaChave\n"
                 "  Crie sua chave em: https://console.anthropic.com"
             )
+
+        # Opcionais (avisos apenas)
+        if not self.chave_elevenlabs:
+            opcionais.append(
+                "ELEVENLABS_API_KEY não configurada (TTS premium — haverá fallback gTTS).\n"
+                "  Crie sua chave em: https://elevenlabs.io/api"
+            )
+        if not self.telegram_token or not self.telegram_chat_id:
+            opcionais.append(
+                "TELEGRAM_BOT_TOKEN e/ou TELEGRAM_CHAT_ID não configurados (notificações desativadas).\n"
+                "  Crie bot em @BotFather, pegue token e chat_id."
+            )
+        if not os.getenv("PEXELS_API_KEY"):
+            opcionais.append(
+                "PEXELS_API_KEY não configurada (fundos de vídeo — haverá fallback CC0).\n"
+                "  Crie em: https://www.pexels.com/api/"
+            )
+        if not os.getenv("PIXABAY_API_KEY"):
+            opcionais.append(
+                "PIXABAY_API_KEY não configurada (fundos/músicas — haverá fallback CC0).\n"
+                "  Crie em: https://pixabay.com/api/docs/"
+            )
+        if not Path("credentials.json").exists():
+            opcionais.append(
+                "credentials.json não encontrado (YouTube/TikTok OAuth — postagem desativada).\n"
+                "  Baixe do Google Cloud Console e coloque na raiz."
+            )
+        if not Path("token.json").exists():
+            opcionais.append(
+                "token.json não encontrado (OAuth token — será gerado no primeiro uso)."
+            )
+
+        return {"obrigatorios": obrigatorios, "opcionais": opcionais}
+
+    def validar_para_corte(self) -> list[str]:
+        """Validação mínima para youtube_para_shorts.py e processar_video.py."""
+        erros = []
+        if not self.chave_anthropic:
+            erros.append(
+                "ANTHROPIC_API_KEY não configurada.\n"
+                "  Crie em: https://console.anthropic.com"
+            )
+        return erros
+
+    def validar_para_geracao(self) -> dict[str, list[str]]:
+        """Validação para gerador_conteudo.py (IA + TTS + fundos + Telegram)."""
+        obrig = []
+        opc = []
+        if not self.chave_anthropic:
+            obrig.append("ANTHROPIC_API_KEY obrigatória para gerar roteiros.")
+        if not self.chave_elevenlabs:
+            opc.append("ELEVENLABS_API_KEY ausente — usará gTTS gratuito.")
+        if not os.getenv("PEXELS_API_KEY"):
+            opc.append("PEXELS_API_KEY ausente — fundos via fallback CC0.")
+        if not os.getenv("PIXABAY_API_KEY"):
+            opc.append("PIXABAY_API_KEY ausente — músicas via fallback CC0.")
+        if not self.tem_telegram():
+            opc.append("Telegram não configurado — notificações desativadas.")
+        return {"obrigatorios": obrig, "opcionais": opc}
+
+    def validar_para_postagem(self) -> list[str]:
+        """Validação para agendador.py / servidor.py endpoints de postagem."""
+        erros = []
+        if not self.chave_anthropic:
+            erros.append("ANTHROPIC_API_KEY obrigatória (análise de performance).")
+        if not Path("credentials.json").exists():
+            erros.append("credentials.json não encontrado (OAuth YouTube/TikTok).")
+        # token.json pode não existir na primeira execução — não bloqueia
         return erros
 
     def tem_telegram(self) -> bool:

@@ -18,9 +18,12 @@ import json
 import re
 import logging
 import argparse
+import random
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
+from constantes import TAXA_CAMBIO_USD_BRL
 
 BANCO_ARQUIVO = "banco_shorts.db"
 
@@ -132,7 +135,7 @@ def extrair_youtube_id(url: str) -> str:
     # FIX: retornar hash do url inteiro para IDs locais (evita colisão)
     return url
 
-def video_ja_processado(url: str) -> dict | None:
+def video_ja_processado(url: str) -> Optional[dict]:
     """Retorna o registro se já processado, None caso contrário."""
     yt_id = extrair_youtube_id(url)
     with get_conn() as conn:
@@ -143,7 +146,7 @@ def video_ja_processado(url: str) -> dict | None:
     return dict(row) if row else None
 
 def registrar_video(url: str, titulo: str, duracao_s: float,
-                    caminho_arquivo) -> int:
+                    caminho_arquivo: Path) -> int:
     """Registra ou atualiza um vídeo. Retorna o ID interno."""
     yt_id = extrair_youtube_id(url)
     with get_conn() as conn:
@@ -204,7 +207,7 @@ def resetar_video(url_ou_id: str) -> None:
 # ─── CORTES ───────────────────────────────────────────────
 
 def registrar_corte(video_id: int, numero: int, corte_info: dict,
-                    caminho_video, caminho_txt, desc_info: dict | None) -> int:
+                    caminho_video: Path, caminho_txt: Path, desc_info: Optional[dict]) -> int:
     """Registra um corte gerado. Retorna o ID do corte."""
     hashtags = json.dumps(
         desc_info.get("hashtags", []), ensure_ascii=False
@@ -242,8 +245,8 @@ def registrar_corte(video_id: int, numero: int, corte_info: dict,
         corte_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return corte_id
 
-def listar_cortes(video_id: int | None = None,
-                  status: str | None = None) -> list[dict]:
+def listar_cortes(video_id: Optional[int] = None,
+                  status: Optional[str] = None) -> list[dict]:
     # FIX: construção de query parametrizada (evita SQL injection)
     condicoes = ["1=1"]
     params: list = []
@@ -271,7 +274,7 @@ def listar_cortes(video_id: int | None = None,
     return [dict(r) for r in rows]
 
 def atualizar_status_corte(corte_id: int, status: str,
-                           youtube_short_id: str | None = None) -> None:
+                           youtube_short_id: Optional[str] = None) -> None:
     # FIX: validar status antes de gravar
     STATUS_VALIDOS = {"pronto", "agendado", "postado", "erro"}
     if status not in STATUS_VALIDOS:
@@ -287,6 +290,7 @@ def atualizar_status_corte(corte_id: int, status: str,
 
 def agendar_corte(corte_id: int, data_hora_iso: str) -> None:
     """Agenda um corte (formato: 'AAAA-MM-DD HH:MM:SS')."""
+    # data_hora_iso validated before insert
     # FIX: validar formato da data antes de gravar
     try:
         datetime.strptime(data_hora_iso[:19], "%Y-%m-%d %H:%M:%S")
@@ -304,6 +308,7 @@ def limpar_agendamentos() -> int:
     Não altera vídeos já postados.
     Retorna quantos cortes foram resetados.
     """
+    # type: ignore[return-value]  # rowcount is int
     with get_conn() as conn:
 
         cur = conn.execute("""
@@ -371,7 +376,6 @@ def proximo_tema_disponivel(tipo: str, todos_os_temas: list[str]) -> str:
     Retorna o próximo tema não usado.
     Se todos já foram usados, reseta o ciclo e recomeça.
     """
-    import random
     usados = temas_ja_usados(tipo)
     disponiveis = [t for t in todos_os_temas if t not in usados]
 
@@ -465,11 +469,10 @@ def detectar_tipo(nome: str) -> str:
     return "denso"
 
 def obter_duracao_video(video: Path) -> float:
-
+    """Obtém duração do vídeo usando ffprobe."""
     try:
-
+        from config import cfg
         resultado = subprocess.run(
-
             [
                 "ffprobe",
                 "-v",
@@ -482,15 +485,15 @@ def obter_duracao_video(video: Path) -> float:
             ],
             capture_output=True,
             text=True,
+            timeout=cfg.timeout_ffprobe
         )
 
         return float(resultado.stdout.strip())
 
     except Exception:
-
         return 0.0
     
-def importar_video(video_path: Path):
+def importar_video(video_path: Path) -> bool:
 
     txt = video_path.with_suffix(".txt")
 
@@ -546,7 +549,7 @@ def importar_video(video_path: Path):
 
     return True
 
-def importar_output():
+def importar_output() -> None:
 
     pasta = Path("output")
 
@@ -628,7 +631,7 @@ def main_cli() -> None:
 
     elif args.stats:
         s = stats()
-        custo_brl = s["custo_total_usd"] * 5.6
+        custo_brl = s["custo_total_usd"] * TAXA_CAMBIO_USD_BRL
         print("\n📊 ESTATÍSTICAS GERAIS")
         print(f"   Vídeos processados : {s['total_videos']}")
         print(f"   Cortes gerados     : {s['total_cortes']}")

@@ -34,12 +34,22 @@
 
 import asyncio
 import edge_tts
+import anthropic
+import requests
 import os, sys, json, re, random, shutil, argparse, subprocess, tempfile
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 from logger_setup import get_logger
 from retry import chamar_anthropic, chamar_elevenlabs
 from telegram import notificar
+from config import cfg
+from constantes import CORES_ASS, TAXA_CAMBIO_USD_BRL
+import banco
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 try:
     from analytics import obter_config_otimizada
     _config_otimizada = obter_config_otimizada()
@@ -51,7 +61,6 @@ logger = get_logger(__name__)
 # ═══════════════════════════════════════════════════════
 #  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
-from config import cfg
 
 CHAVE_ANTHROPIC  = cfg.chave_anthropic
 CHAVE_ELEVENLABS = cfg.chave_elevenlabs
@@ -74,7 +83,7 @@ VOZ_ELEVENLABS_ID = cfg.voz_elevenlabs_id
 VIDEOS_POR_DIA   = {"reflexao": 4, "historia": 4, "versiculo": 2}
 # ═══════════════════════════════════════════════════════
 
-CORES_ASS = {"white": "&H00FFFFFF", "yellow": "&H0000FFFF", "cyan": "&H00FFFF00"}
+# CORES_ASS agora vem de constantes.py
 
 # Temas rotativos para variar o conteúdo
 def _proximo_tema(tipo: str, lista: list) -> str:
@@ -83,9 +92,8 @@ def _proximo_tema(tipo: str, lista: list) -> str:
     Garante diversidade de conteúdo — nunca repete antes de esgotar o ciclo.
     """
     try:
-        import banco as _banco
-        _banco.inicializar()
-        return _banco.proximo_tema_disponivel(tipo, lista)
+        banco.inicializar()
+        return banco.proximo_tema_disponivel(tipo, lista)
     except Exception:
         # Fallback seguro se banco não disponível
         return random.choice(lista)
@@ -150,24 +158,22 @@ def verificar_deps():
     if CHAVE_ELEVENLABS:
         log("Voz: ElevenLabs (alta qualidade)")
     else:
-        try:
-            import gtts
+        if gTTS:
             log("Voz: gTTS gratuito (para ElevenLabs: export ELEVENLABS_API_KEY=...)")
-        except ImportError:
+        else:
             erros.append("gtts não instalado → pip install gtts")
 
     log("Dependências OK")
 
 # ─── ETAPA 1: IA GERA ROTEIRO ────────────────────────────
 
-def calcular_palavras_alvo(duracao_min, duracao_max):
+def calcular_palavras_alvo(duracao_min: int, duracao_max: int) -> int:
     """Calcula palavras necessárias para atingir a duração alvo.
     Média de fala em PT-BR: ~130 palavras/minuto."""
     media = (duracao_min + duracao_max) / 2
     return int(media / 60 * 130)
 
-def ia_gerar_reflexao(tema=None, duracao=None):
-    import anthropic
+def ia_gerar_reflexao(tema: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
     if not tema:
         # Priorizar temas recomendados pela análise de performance
         temas_rec = _config_otimizada.get("temas_recomendados", [])
@@ -209,8 +215,7 @@ Responda SOMENTE com JSON puro:
     dados["duracao_alvo"] = dur
     return dados
 
-def ia_gerar_historia(tema=None, duracao=None):
-    import anthropic
+def ia_gerar_historia(tema: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
     if not tema:
         temas_rec = _config_otimizada.get("temas_recomendados", [])
         if temas_rec and random.random() < 0.6:
@@ -250,8 +255,7 @@ Responda SOMENTE com JSON puro:
     dados["duracao_alvo"] = dur
     return dados
 
-def ia_gerar_versiculo(versiculo=None, duracao=None):
-    import anthropic
+def ia_gerar_versiculo(versiculo: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
     if not versiculo:
         versiculo = _proximo_tema("versiculo", VERSICULOS_TEMA)
     dur = duracao or DURACAO_VERSICULO
@@ -288,9 +292,8 @@ Responda SOMENTE com JSON puro:
 
 # ─── ETAPA 2: GERAR ÁUDIO ────────────────────────────────
 
-def gerar_audio_elevenlabs(roteiro, caminho_saida):
+def gerar_audio_elevenlabs(roteiro: str, caminho_saida: Path) -> bool:
     """Voz de alta qualidade — requer ELEVENLABS_API_KEY"""
-    import requests
     log("Gerando voz com ElevenLabs...", "PROC")
 
     url  = f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVENLABS_ID}"
@@ -319,16 +322,17 @@ def gerar_audio_elevenlabs(roteiro, caminho_saida):
     log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
     return True
 
-def gerar_audio_gtts(roteiro, caminho_saida):
+def gerar_audio_gtts(roteiro: str, caminho_saida: Path) -> bool:
     """Voz gratuita — sem necessidade de API key"""
-    from gtts import gTTS
+    if not gTTS:
+        raise RuntimeError("gtts não instalado → pip install gtts")
     log("Gerando voz com gTTS (gratuito)...", "PROC")
     tts = gTTS(text=roteiro, lang="pt", slow=False)
     tts.save(str(caminho_saida))
     log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
     return True
 
-async def _edge_tts_async(texto, caminho_saida):
+async def _edge_tts_async(texto: str, caminho_saida: Path) -> None:
     communicate = edge_tts.Communicate(
         texto,
         voice="pt-BR-AntonioNeural",
@@ -338,7 +342,7 @@ async def _edge_tts_async(texto, caminho_saida):
     await communicate.save(str(caminho_saida))
 
 
-def gerar_audio_edge(roteiro, caminho_saida):
+def gerar_audio_edge(roteiro: str, caminho_saida: Path) -> bool:
     """Voz gratuita usando Edge TTS"""
 
     log("Gerando voz com Edge TTS...", "PROC")
@@ -356,7 +360,7 @@ def gerar_audio_edge(roteiro, caminho_saida):
 
     return True
 
-def gerar_audio(roteiro, caminho_saida):
+def gerar_audio(roteiro: str, caminho_saida: Path) -> bool:
     """
     Prioridade:
 
@@ -401,10 +405,10 @@ def gerar_audio(roteiro, caminho_saida):
     )
 
 
-def obter_duracao_audio(caminho):
+def obter_duracao_audio(caminho: Path) -> float:
     cmd = ["ffprobe","-v","quiet","-show_entries","format=duration",
            "-of","json", str(caminho)]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffprobe)
     try:
         return float(json.loads(res.stdout)["format"]["duration"])
     except Exception:
@@ -412,7 +416,7 @@ def obter_duracao_audio(caminho):
 
 # ─── ETAPA 3: GERAR LEGENDA ASS ──────────────────────────
 
-def roteiro_para_ass(roteiro, duracao_audio, caminho_saida):
+def roteiro_para_ass(roteiro: str, duracao_audio: float, caminho_saida: Path) -> None:
     """Gera legenda ASS sincronizada estimando tempo por palavra"""
     cor    = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
     header = f"""[Script Info]
@@ -428,7 +432,7 @@ Style: Default,Arial,{TAMANHO_FONT},{cor},&H000000FF,&H00000000,&H80000000,-1,0,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    def t2ass(s):
+    def t2ass(s: float) -> str:
         h=int(s//3600); m=int((s%3600)//60); sc=s%60
         return f"{h}:{m:02d}:{sc:05.2f}"
 
@@ -462,7 +466,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ─── ETAPA 4: MONTAR VÍDEO ───────────────────────────────
 
-def obter_fundo_aleatorio():
+def obter_fundo_aleatorio() -> Optional[Path]:
     """Retorna um vídeo de fundo aleatório da pasta fundos/ ou subpastas."""
     pasta = Path(PASTA_FUNDOS)
     if pasta.exists():
@@ -477,7 +481,7 @@ def obter_fundo_aleatorio():
     # Sem fundo disponível — gera fundo preto
     return None
 
-def obter_musica_aleatoria():
+def obter_musica_aleatoria() -> Optional[Path]:
     """Retorna uma música instrumental aleatória"""
     pasta = Path(PASTA_MUSICAS)
     if pasta.exists():
@@ -486,7 +490,7 @@ def obter_musica_aleatoria():
             return random.choice(musicas)
     return None
 
-def montar_video(dados_roteiro, caminho_audio, pasta_saida):
+def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) -> tuple:
     """Monta o vídeo final com fundo + áudio + legenda + logo"""
     pasta_saida = Path(pasta_saida)
     pasta_saida.mkdir(parents=True, exist_ok=True)
@@ -574,7 +578,7 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
              str(saida_mp4)]
         )
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_encode)
 
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-300:]}", "ERRO")
@@ -607,17 +611,10 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
 
 # ─── PIPELINE POR FORMATO ────────────────────────────────
 
-def gerar_video(formato, tema=None, duracao=None):
+def gerar_video(formato: str, tema: Optional[str] = None, duracao: Optional[tuple] = None) -> tuple:
     """Pipeline completo para um único vídeo"""
 
-    # Importar banco se disponível
-    usar_banco = False
-    try:
-        import banco
-        banco.inicializar()
-        usar_banco = True
-    except ImportError:
-        pass
+    banco.inicializar()
 
     Path(PASTA_AUDIO_TEMP).mkdir(exist_ok=True)
     Path(PASTA_PRONTOS).mkdir(exist_ok=True)
@@ -641,22 +638,30 @@ def gerar_video(formato, tema=None, duracao=None):
     palavras = len(dados["roteiro"].split())
     log(f"Roteiro: {palavras} palavras | custo: ${dados['custo_usd']:.4f}")
 
-    # 2. Gerar áudio
+    # 2. Gerar áudio com cleanup garantido
     ts           = datetime.now().strftime("%H%M%S")
     audio_path   = Path(PASTA_AUDIO_TEMP) / f"audio_{formato}_{ts}.mp3"
-    ok           = gerar_audio(dados["roteiro"], audio_path)
-    if not ok:
-        log("Falha ao gerar áudio.", "ERRO")
-        return None, None
 
-    # 3. Montar vídeo
-    video_out, txt_out = montar_video(dados, audio_path, PASTA_PRONTOS)
+    try:
+        ok = gerar_audio(dados["roteiro"], audio_path)
+        if not ok:
+            log("Falha ao gerar áudio.", "ERRO")
+            return None, None
 
-    # Limpar áudio temp
-    if audio_path.exists():
-        audio_path.unlink()
+        # 3. Montar vídeo
+        video_out, txt_out = montar_video(dados, audio_path, PASTA_PRONTOS)
 
-    if video_out and usar_banco:
+        return video_out, txt_out
+
+    finally:
+        # Limpar áudio temp - SEMPRE executado, mesmo se houver erro
+        if audio_path.exists():
+            try:
+                audio_path.unlink()
+            except Exception as e:
+                logger.warning("Falha ao limpar arquivo temporário %s: %s", audio_path, e)
+
+    if video_out:
         vid_id = banco.registrar_video(
             url=f"gerado_{formato}_{ts}",
             titulo=dados.get("titulo_yt",""),
@@ -683,7 +688,7 @@ def gerar_video(formato, tema=None, duracao=None):
 
 # ─── PIPELINE DO DIA ─────────────────────────────────────
 
-def gerar_videos_do_dia(formatos=None, quantidade=None):
+def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[int] = None) -> list:
     verificar_deps()
 
     # Monta automaticamente a fila de vídeos do dia

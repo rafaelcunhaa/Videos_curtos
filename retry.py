@@ -21,6 +21,11 @@ import time
 import functools
 from typing import Callable, Any
 
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
+
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -43,8 +48,7 @@ MULTIPLICADOR    = 2    # fator de crescimento (2s → 4s → 8s → 16s → 32s
 
 def _erro_temporario_anthropic(exc: Exception) -> bool:
     """Retorna True para erros que valem retry na API Anthropic."""
-    try:
-        import anthropic
+    if anthropic:
         # Rate limit (429) ou erros de servidor (5xx)
         if isinstance(exc, anthropic.RateLimitError):
             return True
@@ -54,8 +58,6 @@ def _erro_temporario_anthropic(exc: Exception) -> bool:
             return True
         if isinstance(exc, anthropic.APITimeoutError):
             return True
-    except ImportError:
-        pass
     # Fallback genérico
     msg = str(exc).lower()
     return any(k in msg for k in ("rate limit", "429", "500", "503", "timeout", "connection"))
@@ -104,29 +106,12 @@ def chamar_anthropic(func: Callable, *args, **kwargs) -> Any:
     Exemplo:
         resposta = chamar_anthropic(
             cliente.messages.create,
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-4",
             max_tokens=1000,
             messages=[...]
         )
     """
-    @retry(
-        retry=retry_if_exception_type(Exception),
-        stop=stop_after_attempt(MAX_TENTATIVAS),
-        wait=wait_exponential(multiplier=MULTIPLICADOR, min=ESPERA_MIN_S, max=ESPERA_MAX_S),
-        before_sleep=lambda state: logger.warning(
-            "Anthropic API — tentativa %d/%d após erro: %s. Aguardando %.0fs...",
-            state.attempt_number, MAX_TENTATIVAS,
-            type(state.outcome.exception()).__name__,
-            state.next_action.sleep,
-        ),
-        reraise=True,
-    )
-    def _call():
-        if not _erro_temporario_anthropic(Exception()):  # sempre tenta
-            pass
-        return func(*args, **kwargs)
-
-    # Implementação mais simples e confiável
+    # Implementação com retry manual e backoff exponencial
     ultimo_erro = None
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         try:

@@ -41,7 +41,21 @@ from datetime import datetime, timedelta
 from logger_setup import get_logger
 from retry import chamar_youtube
 from telegram import notificar
-from banco import limpar_agendamentos
+import banco
+from banco import limpar_agendamentos, listar_cortes, registrar_video, registrar_corte
+from constantes import UPLOAD_CHUNK_SIZE_BYTES, YOUTUBE_MAX_TITULO, YOUTUBE_MAX_DESCRICAO, YOUTUBE_MAX_TAGS
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+except ImportError:
+    Credentials = None
+    InstalledAppFlow = None
+    Request = None
+    build = None
+    MediaFileUpload = None
 try:
     from tiktok import tiktok as tiktok_client
     TIKTOK_DISPONIVEL = True
@@ -72,9 +86,6 @@ PRIVACIDADE_PADRAO = cfg.privacidade_padrao
 
 # Verificar fila a cada X minutos no daemon
 DAEMON_INTERVALO_MIN = cfg.daemon_intervalo_min
-
-# Postar no TikTok além do YouTube?
-POSTAR_TIKTOK = True
 # ═══════════════════════════════════════════════════════
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
@@ -91,9 +102,9 @@ def log(msg, nivel="INFO"):
 
 def autenticar():
     """OAuth2 com YouTube — abre navegador na primeira vez"""
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
+    if not Credentials or not InstalledAppFlow or not Request:
+        log("google-auth / google-auth-oauthlib não instalados", "ERRO")
+        sys.exit(1)
 
     creds = None
 
@@ -127,15 +138,19 @@ def autenticar():
     return creds
 
 def criar_servico_youtube():
-    from googleapiclient.discovery import build
+    if not build:
+        log("googleapiclient não instalado", "ERRO")
+        sys.exit(1)
     creds = autenticar()
     return build("youtube", "v3", credentials=creds)
 
 # ─── UPLOAD PARA YOUTUBE ──────────────────────────────────
 
-def fazer_upload(corte):
+def fazer_upload(corte: dict) -> Optional[str]:
     """Faz o upload do Short para o YouTube"""
-    from googleapiclient.http import MediaFileUpload
+    if not MediaFileUpload:
+        log("googleapiclient não instalado", "ERRO")
+        return None
 
     caminho_video = corte.get("caminho_video")
     if not caminho_video or not Path(caminho_video).exists():
@@ -185,8 +200,8 @@ def fazer_upload(corte):
 
     corpo = {
         "snippet": {
-            "title":       titulo[:100],       # limite do YouTube
-            "description": descricao_final[:5000],
+            "title":       titulo[:YOUTUBE_MAX_TITULO],
+            "description": descricao_final[:YOUTUBE_MAX_DESCRICAO],
             "tags":        tags,
             "categoryId":  CATEGORIA_ID,
         },
@@ -200,7 +215,7 @@ def fazer_upload(corte):
         caminho_video,
         mimetype="video/mp4",
         resumable=True,
-        chunksize=10 * 1024 * 1024  # 10MB por chunk
+        chunksize=UPLOAD_CHUNK_SIZE_BYTES
     )
 
     requisicao = servico.videos().insert(
@@ -229,7 +244,7 @@ def fazer_upload(corte):
 
 def fazer_upload_tiktok(corte: dict) -> Optional[str]:
     """Posta o mesmo vídeo no TikTok nativamente."""
-    if not TIKTOK_DISPONIVEL or not POSTAR_TIKTOK:
+    if not TIKTOK_DISPONIVEL or not cfg.postar_tiktok:
         return None
 
     caminho_video = corte.get("caminho_video")
@@ -291,7 +306,7 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
 
 # ─── AGENDAMENTO ─────────────────────────────────────────
 
-def proximos_horarios(quantidade=10):
+def proximos_horarios(quantidade: int = 10) -> list:
     """Calcula os próximos horários de postagem ideais"""
     agora    = datetime.now()
     horarios = []
@@ -307,9 +322,8 @@ def proximos_horarios(quantidade=10):
 
     return sorted(horarios)[:quantidade]
 
-def agendar_corte_automatico(corte_id, data_hora_str=None):
+def agendar_corte_automatico(corte_id: int, data_hora_str: Optional[str] = None) -> Optional[datetime]:
     """Agenda um corte — escolhe horário ideal se não especificado"""
-    import banco
     banco.inicializar()
 
     cortes = banco.listar_cortes()
@@ -334,15 +348,18 @@ def agendar_corte_automatico(corte_id, data_hora_str=None):
                     horarios_ocupados.append(
                         datetime.strptime(ag["agendado_para"], "%Y-%m-%d %H:%M:%S")
                     )
-                except Exception:
-                    # Data malformada no banco: o corte some da lista de horários
-                    # ocupados e pode haver dois vídeos agendados no mesmo slot.
-                    # Logar para investigação, não falhar o agendamento em lote.
-                    logger.warning(
-                        "Corte %s tem agendado_para malformado: %r — "
-                        "excluído do cálculo de horários ocupados",
-                        ag.get("id"), ag.get("agendado_para")
+                except Exception as e:
+                    # Data malformada no banco: CRÍTICO - pode causar conflitos
+                    logger.error(
+                        "Corte %s tem agendado_para malformado: %r (erro: %s). "
+                        "Resetando status para 'pronto' para evitar conflitos.",
+                        ag.get("id"), ag.get("agendado_para"), e
                     )
+                    # Resetar o corte com data inválida para status 'pronto'
+                    try:
+                        banco.atualizar_status_corte(ag["id"], "pronto")
+                    except Exception as reset_err:
+                        logger.error("Falha ao resetar corte %s: %s", ag.get("id"), reset_err)
 
         dt = None
         for h in proximos_horarios(20):
@@ -361,7 +378,7 @@ def agendar_corte_automatico(corte_id, data_hora_str=None):
     log(f"Título: {corte.get('titulo','—')}")
     return dt
 
-def eh_video_ia(corte):
+def eh_video_ia(corte: dict) -> bool:
     titulo = (corte.get("titulo_video") or "").lower()
 
     palavras = [
@@ -376,7 +393,7 @@ def eh_video_ia(corte):
     return any(p in titulo for p in palavras)
 
 
-def montar_fila_publicacao(ia, podcasts):
+def montar_fila_publicacao(ia: list, podcasts: list) -> list:
     """Monta uma fila no padrão 3 vídeos de IA, 1 podcast."""
 
     fila = []
@@ -401,7 +418,6 @@ def montar_fila_publicacao(ia, podcasts):
 
 def agendar_lote():
     """Agenda todos os cortes prontos nos próximos horários ideais"""
-    import banco
     banco.inicializar()
 
     todos = banco.listar_cortes(status="pronto")
@@ -424,15 +440,17 @@ def agendar_lote():
                 horarios_ocupados.append(
                     datetime.strptime(ag["agendado_para"], "%Y-%m-%d %H:%M:%S")
                 )
-            except Exception:
-                # Mesmo risco do bloco equivalente em agendar_corte_automatico:
-                # data malformada some da lista de ocupados sem aviso, abrindo
-                # espaço para dois vídeos caírem no mesmo horário.
-                logger.warning(
-                    "Corte %s tem agendado_para malformado: %r — "
-                    "excluído do cálculo de horários ocupados",
-                    ag.get("id"), ag.get("agendado_para")
+            except Exception as e:
+                # Data malformada: resetar para evitar conflitos
+                logger.error(
+                    "Corte %s tem agendado_para malformado: %r (erro: %s). "
+                    "Resetando para 'pronto'.",
+                    ag.get("id"), ag.get("agendado_para"), e
                 )
+                try:
+                    banco.atualizar_status_corte(ag["id"], "pronto")
+                except Exception as reset_err:
+                    logger.error("Falha ao resetar corte %s: %s", ag.get("id"), reset_err)
 
     horarios_disponiveis = []
     multiplicador = 3
@@ -503,9 +521,8 @@ def agendar_lote():
             notificar._enviar(parte, silencioso=True)
             mensagem = mensagem[len(parte):].lstrip()
 
-def postar_agora(corte_id):
+def postar_agora(corte_id: int) -> bool:
     """Faz upload imediato de um corte"""
-    import banco
     banco.inicializar()
 
     cortes = banco.listar_cortes()
@@ -532,7 +549,7 @@ def postar_agora(corte_id):
 
         # Só remove o arquivo quando o TikTok também tiver sido publicado
         if tiktok_id:
-            limpar_video_apos_postagem(corte)
+            excluir_video_local(corte.get("caminho_video"))
         else:
             log(
                 "TikTok não confirmou a postagem. "
@@ -551,7 +568,7 @@ def postar_agora(corte_id):
         notificar.erro("agendador.py", f"Upload falhou para o corte {corte_id}")
         return False
 
-def excluir_video_local(caminho_video):
+def excluir_video_local(caminho_video: str) -> None:
     """Exclui o vídeo local depois que ele foi publicado."""
     if not caminho_video:
         return
@@ -575,7 +592,6 @@ def excluir_video_local(caminho_video):
 
 def verificar_e_postar_agendados():
     """Verifica a fila e posta os que chegaram na hora"""
-    import banco
     banco.inicializar()
 
     pendentes = banco.cortes_pendentes_agendamento()
@@ -611,7 +627,6 @@ def verificar_e_postar_agendados():
 
 def listar_fila():
     """Mostra a fila de agendamentos"""
-    import banco
     banco.inicializar()
 
     prontos   = banco.listar_cortes(status="pronto")

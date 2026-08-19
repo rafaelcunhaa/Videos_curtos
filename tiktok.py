@@ -744,25 +744,6 @@ class TikTokClient:
 
         return valida
 
-    def testar(self) -> bool:
-        """Verifica se a sessão está ativa."""
-        if not SESSION_FILE.exists():
-            print("\n❌ Sessão não encontrada. Rode: python tiktok.py --login\n")
-            return False
-
-        log("Verificando sessão TikTok...", "PROC")
-        valida = sessao_valida()
-        if valida:
-            dados = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
-            salvo_em = dados.get("salvo_em", "desconhecido")
-            print("\n✅ Sessão TikTok ativa!")
-            print(f"   Salva em: {salvo_em}")
-            print(f"   Arquivo:  {SESSION_FILE}\n")
-        else:
-            print("\n❌ Sessão expirada ou inválida.")
-            print("   Rode: python tiktok.py --login\n")
-        return valida
-
     def info_conta(self) -> dict:
         """Compatibilidade com interface anterior — retorna dict vazio."""
         # Com automação de navegador não temos acesso direto à info da conta
