@@ -185,7 +185,9 @@ def gerar_ass_de_roteiro(roteiro: str, duracao_audio: float,
 
 def nome_seguro(texto: str, max_len: int = 35) -> str:
     """Remove caracteres inválidos para nome de arquivo."""
-    s = re.sub(r'[^\w\s-]', '', texto)
+    if not texto:
+        return ""
+    s = re.sub(r'[^\w\s.-]', '', texto)  # permite letras, números, _, espaço, ., -
     s = re.sub(r'\s+', '_', s.strip())
     return s[:max_len]
 
