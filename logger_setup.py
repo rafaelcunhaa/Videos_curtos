@@ -19,19 +19,19 @@ from pathlib import Path
 
 # Cores ANSI para terminal
 _CORES = {
-    "DEBUG":    "\033[36m",   # cyan
-    "INFO":     "\033[32m",   # verde
-    "WARNING":  "\033[33m",   # amarelo
-    "ERROR":    "\033[31m",   # vermelho
-    "CRITICAL": "\033[35m",   # magenta
+    "DEBUG": "\033[36m",  # cyan
+    "INFO": "\033[32m",  # verde
+    "WARNING": "\033[33m",  # amarelo
+    "ERROR": "\033[31m",  # vermelho
+    "CRITICAL": "\033[35m",  # magenta
 }
 _RESET = "\033[0m"
 
 _ICONS = {
-    "DEBUG":    "·",
-    "INFO":     "✓",
-    "WARNING":  "⚠",
-    "ERROR":    "✗",
+    "DEBUG": "·",
+    "INFO": "✓",
+    "WARNING": "⚠",
+    "ERROR": "✗",
     "CRITICAL": "💀",
 }
 
@@ -40,9 +40,9 @@ class ColorFormatter(logging.Formatter):
     """Formata logs coloridos para o terminal."""
 
     def format(self, record: logging.LogRecord) -> str:
-        cor   = _CORES.get(record.levelname, "")
+        cor = _CORES.get(record.levelname, "")
         icone = _ICONS.get(record.levelname, "·")
-        msg   = super().format(record)
+        msg = super().format(record)
         return f"{cor}[{self.formatTime(record, '%H:%M:%S')}] {icone} {record.getMessage()}{_RESET}"
 
 
@@ -51,7 +51,7 @@ class PlainFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         icone = _ICONS.get(record.levelname, "·")
-        base  = f"[{self.formatTime(record, '%Y-%m-%d %H:%M:%S')}] {icone} [{record.levelname}] {record.getMessage()}"
+        base = f"[{self.formatTime(record, '%Y-%m-%d %H:%M:%S')}] {icone} [{record.levelname}] {record.getMessage()}"
         # Incluir traceback se houver exceção
         if record.exc_info:
             base += "\n" + self.formatException(record.exc_info)
@@ -61,9 +61,11 @@ class PlainFormatter(logging.Formatter):
 _configurado = False
 
 
-def configurar_logging(pasta_logs: Path = Path("logs"),
-                       nivel_console: int = logging.INFO,
-                       nivel_arquivo: int = logging.DEBUG) -> None:
+def configurar_logging(
+    pasta_logs: Path = Path("logs"),
+    nivel_console: int = logging.INFO,
+    nivel_arquivo: int = logging.DEBUG,
+) -> None:
     """
     Configura handlers de log globais. Chamar uma vez no início.
     Chamadas subsequentes são ignoradas (idempotente).
@@ -128,5 +130,6 @@ def get_logger(nome: str) -> logging.Logger:
         logger = get_logger(__name__)
     """
     from config import cfg
+
     configurar_logging(pasta_logs=cfg.pasta_logs)
     return logging.getLogger(nome)

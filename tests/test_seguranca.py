@@ -2,11 +2,12 @@
 Testes de Segurança - Validação das correções aplicadas.
 Garante que vulnerabilidades conhecidas estão corrigidas.
 """
-import pytest
+
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
-import time
 
 
 @pytest.mark.security
@@ -30,7 +31,7 @@ class TestPathTraversal:
             "arquivo": (
                 "../../etc/passwd",  # path traversal
                 b"fake content",
-                "video/mp4"
+                "video/mp4",
             )
         }
 
@@ -54,11 +55,7 @@ class TestPathTraversal:
         client = TestClient(app)
 
         files = {
-            "arquivo": (
-                "malware.exe",
-                b"fake exe content",
-                "application/x-msdownload"
-            )
+            "arquivo": ("malware.exe", b"fake exe content", "application/x-msdownload")
         }
 
         response = client.post("/api/upload", files=files)
@@ -79,13 +76,7 @@ class TestPathTraversal:
 
         client = TestClient(app)
 
-        files = {
-            "arquivo": (
-                "normal_video.mp4",
-                b"fake video",
-                "video/mp4"
-            )
-        }
+        files = {"arquivo": ("normal_video.mp4", b"fake video", "video/mp4")}
 
         # Não deve levantar exceção
         response = client.post("/api/upload", files=files)
@@ -97,7 +88,7 @@ class TestRateLimiting:
 
     def test_rate_limit_excedido(self, monkeypatch):
         """Muitas requisições devem ser bloqueadas."""
-        from servidor import app, check_rate_limit
+        from servidor import app
 
         client = TestClient(app)
 
@@ -106,7 +97,7 @@ class TestRateLimiting:
         for i in range(15):  # Limite é 10/hora no /api/youtube/processar
             response = client.post(
                 "/api/youtube/processar",
-                json={"url": f"https://youtube.com/watch?v=test{i}"}
+                json={"url": f"https://youtube.com/watch?v=test{i}"},
             )
             respostas.append(response.status_code)
 
@@ -115,9 +106,8 @@ class TestRateLimiting:
 
     def test_rate_limit_sliding_window(self, monkeypatch):
         """Rate limiting deve usar janela deslizante."""
-        from servidor import _rate_limit_store
-        from fastapi import Request
-        from servidor import check_rate_limit
+
+        from servidor import _rate_limit_store, check_rate_limit
 
         # Limpar store
         _rate_limit_store.clear()
@@ -155,10 +145,7 @@ class TestValidacaoURL:
         ]
 
         for url in urls_validas:
-            response = client.post(
-                "/api/youtube/processar",
-                json={"url": url}
-            )
+            response = client.post("/api/youtube/processar", json={"url": url})
             # Não deve falhar por URL inválida (pode falhar por rate limit)
             assert response.status_code in [200, 202, 429]
 
@@ -177,10 +164,7 @@ class TestValidacaoURL:
         ]
 
         for url in urls_invalidas:
-            response = client.post(
-                "/api/youtube/processar",
-                json={"url": url}
-            )
+            response = client.post("/api/youtube/processar", json={"url": url})
             assert response.status_code == 400
             assert "url" in response.json().get("detail", "").lower()
 
@@ -201,7 +185,7 @@ class TestSQLInjection:
             url="https://youtube.com/watch?v=test",
             titulo=titulo_malicioso,
             duracao_s=100.0,
-            caminho_arquivo=Path("/tmp/test.mp4")
+            caminho_arquivo=Path("/tmp/test.mp4"),
         )
 
         assert video_id is not None
@@ -226,7 +210,7 @@ class TestSQLInjection:
                 url=f"https://youtube.com/watch?v=test_{hash(titulo)}",
                 titulo=titulo,
                 duracao_s=100.0,
-                caminho_arquivo=Path("/tmp/test.mp4")
+                caminho_arquivo=Path("/tmp/test.mp4"),
             )
 
             # Recuperar e verificar
@@ -240,7 +224,6 @@ class TestResourceLeaks:
 
     def test_temp_audio_cleanup(self, tmp_path, monkeypatch):
         """Arquivos de áudio temporários devem ser limpos mesmo com erro."""
-        from gerador_conteudo import gerar_roteiro_completo
         from config import cfg
 
         monkeypatch.setattr(cfg, "pasta_audio_temp", tmp_path / "audio")
@@ -309,6 +292,7 @@ class TestTimeouts:
     def test_subprocess_uses_timeout(self, monkeypatch):
         """Chamadas subprocess devem usar timeout."""
         import subprocess
+
         from banco import obter_duracao
 
         chamadas = []
@@ -345,10 +329,11 @@ class TestRaceConditions:
 
         # Inserir data malformada diretamente no banco
         import sqlite3
+
         conn = sqlite3.connect(banco_populado["banco_path"])
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para='data_invalida' WHERE id=?",
-            (corte_id,)
+            (corte_id,),
         )
         conn.commit()
         conn.close()
@@ -393,14 +378,14 @@ class TestInputValidation:
 
     def test_json_injection_protection(self, banco_teste):
         """Campos JSON devem ser validados."""
+
         import banco
-        import json
 
         video_id = banco.registrar_video(
             url="https://youtube.com/watch?v=test",
             titulo="Teste",
             duracao_s=100.0,
-            caminho_arquivo=Path("/tmp/test.mp4")
+            caminho_arquivo=Path("/tmp/test.mp4"),
         )
 
         # Tentar injetar JSON malformado
@@ -411,7 +396,7 @@ class TestInputValidation:
             "inicio": 0.0,
             "fim": 60.0,
             # Tentativa de injetar código
-            "codigo_malicioso": "__import__('os').system('rm -rf /')"
+            "codigo_malicioso": "__import__('os').system('rm -rf /')",
         }
 
         # Deve aceitar mas não executar o código
@@ -421,7 +406,7 @@ class TestInputValidation:
             corte_info=corte_info_malicioso,
             caminho_video=Path("/tmp/corte.mp4"),
             caminho_txt=Path("/tmp/corte.txt"),
-            desc_info=None
+            desc_info=None,
         )
 
         assert corte_id is not None

@@ -20,12 +20,8 @@
 import asyncio
 import importlib
 import json
-import logging
-import os
 import re
-import subprocess
 import sys
-import tempfile
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -34,34 +30,38 @@ from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks, Request
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import (FileResponse, JSONResponse,
-                                StreamingResponse, HTMLResponse)
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    StreamingResponse,
+)
 from pydantic import BaseModel
 
 # Setup de paths
 BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
 
-from logger_setup import get_logger
 import banco
-from constantes import TAXA_CAMBIO_USD_BRL, MAX_LOGS_BUFFER, EXTENSOES_VIDEO_VALIDAS
+from constantes import EXTENSOES_VIDEO_VALIDAS, MAX_LOGS_BUFFER, TAXA_CAMBIO_USD_BRL
+from logger_setup import get_logger
+
 logger = get_logger(__name__)
 
 # ── Estado global do servidor ──────────────────────────
 _estado = {
-    "daemon_ativo":    False,
-    "daemon_task":     None,
-    "processando":     False,
-    "logs_buffer":     [],       # buffer de logs para SSE
+    "daemon_ativo": False,
+    "daemon_task": None,
+    "processando": False,
+    "logs_buffer": [],  # buffer de logs para SSE
     "ultimo_pipeline": None,
 }
 
 # ── Rate Limiting Simples ──────────────────────────────
 # Rastreia requisições por IP para prevenir abuso
 _rate_limit_store = defaultdict(list)
+
 
 def check_rate_limit(request: Request, max_requests: int, window_seconds: int):
     """
@@ -81,19 +81,19 @@ def check_rate_limit(request: Request, max_requests: int, window_seconds: int):
     # Limpar requisições antigas da janela
     janela_inicio = agora - timedelta(seconds=window_seconds)
     _rate_limit_store[client_ip] = [
-        ts for ts in _rate_limit_store[client_ip]
-        if ts > janela_inicio
+        ts for ts in _rate_limit_store[client_ip] if ts > janela_inicio
     ]
 
     # Verificar limite
     if len(_rate_limit_store[client_ip]) >= max_requests:
         raise HTTPException(
             status_code=429,
-            detail=f"Limite de {max_requests} requisições por {window_seconds}s excedido. Tente novamente em alguns segundos."
+            detail=f"Limite de {max_requests} requisições por {window_seconds}s excedido. Tente novamente em alguns segundos.",
         )
 
     # Registrar esta requisição
     _rate_limit_store[client_ip].append(agora)
+
 
 def secure_path(*parts: str) -> Path:
     """
@@ -109,10 +109,12 @@ def secure_path(*parts: str) -> Path:
         raise ValueError(f"Caminho fora do diretório permitido: {caminho}")
     return caminho
 
+
 MAX_LOGS_BUFFER = 500
 
 
 # ── App ───────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -139,6 +141,7 @@ app.add_middleware(
 
 # ── Servir interface.html ─────────────────────────────
 
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve a interface principal."""
@@ -150,11 +153,12 @@ async def root():
 
 # ── SSE — logs em tempo real ─────────────────────────
 
+
 def _push_log(msg: str, tipo: str = "info"):
     """Adiciona log ao buffer SSE."""
     entry = {
-        "ts":   datetime.now().strftime("%H:%M:%S"),
-        "msg":  msg,
+        "ts": datetime.now().strftime("%H:%M:%S"),
+        "msg": msg,
         "tipo": tipo,
     }
     _estado["logs_buffer"].append(entry)
@@ -168,6 +172,7 @@ async def logs_stream():
     Server-Sent Events — envia logs em tempo real para a interface.
     A interface conecta via: new EventSource('/api/logs/stream')
     """
+
     async def gerador() -> AsyncGenerator[str, None]:
         ultimo_idx = len(_estado["logs_buffer"])
         while True:
@@ -181,13 +186,14 @@ async def logs_stream():
         gerador(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control":     "no-cache",
+            "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-        }
+        },
     )
 
 
 # ── Banco — stats ────────────────────────────────────
+
 
 @app.get("/api/stats")
 async def get_stats():
@@ -197,20 +203,27 @@ async def get_stats():
         s = banco.stats()
         custo_brl = s.get("custo_total_usd", 0) * TAXA_CAMBIO_USD_BRL
         return {
-            "total_videos":   s.get("total_videos", 0),
-            "total_cortes":   s.get("total_cortes", 0),
-            "prontos":        s.get("prontos", 0),
-            "agendados":      s.get("agendados", 0),
-            "postados":       s.get("postados", 0),
-            "erros":          s.get("erros", 0),
+            "total_videos": s.get("total_videos", 0),
+            "total_cortes": s.get("total_cortes", 0),
+            "prontos": s.get("prontos", 0),
+            "agendados": s.get("agendados", 0),
+            "postados": s.get("postados", 0),
+            "erros": s.get("erros", 0),
             "custo_total_usd": s.get("custo_total_usd", 0),
-            "custo_brl":      round(custo_brl, 2),
+            "custo_brl": round(custo_brl, 2),
         }
     except Exception as e:
         logger.error("Erro ao buscar stats: %s", e)
-        return {"total_videos": 0, "total_cortes": 0, "prontos": 0,
-                "agendados": 0, "postados": 0, "erros": 0,
-                "custo_total_usd": 0, "custo_brl": 0}
+        return {
+            "total_videos": 0,
+            "total_cortes": 0,
+            "prontos": 0,
+            "agendados": 0,
+            "postados": 0,
+            "erros": 0,
+            "custo_total_usd": 0,
+            "custo_brl": 0,
+        }
 
 
 @app.get("/api/cortes")
@@ -253,9 +266,10 @@ async def get_proximas_postagens():
 
 # ── Gerar conteúdo ───────────────────────────────────
 
+
 class GerarRequest(BaseModel):
-    formatos:  list[str] = ["reflexao", "historia", "versiculo"]
-    tema:      Optional[str] = None
+    formatos: list[str] = ["reflexao", "historia", "versiculo"]
+    tema: Optional[str] = None
     quantidade: Optional[int] = None
 
 
@@ -294,9 +308,15 @@ async def _task_gerar(formatos: list, tema: Optional[str], quantidade: Optional[
         async for linha in proc.stdout:
             txt = linha.decode("utf-8", errors="replace").strip()
             if txt:
-                tipo = "ok" if "✅" in txt or "✓" in txt else \
-                       "err" if "✗" in txt or "Erro" in txt else \
-                       "ia" if "🤖" in txt else "info"
+                tipo = (
+                    "ok"
+                    if "✅" in txt or "✓" in txt
+                    else (
+                        "err"
+                        if "✗" in txt or "Erro" in txt
+                        else "ia" if "🤖" in txt else "info"
+                    )
+                )
                 _push_log(txt, tipo)
 
         await proc.wait()
@@ -314,6 +334,7 @@ async def _task_gerar(formatos: list, tema: Optional[str], quantidade: Optional[
 
 # ── Pipeline diário ──────────────────────────────────
 
+
 @app.post("/api/pipeline/rodar")
 async def rodar_pipeline(bg: BackgroundTasks):
     """Roda o pipeline diário completo em background."""
@@ -329,7 +350,8 @@ async def _task_pipeline():
     try:
         _push_log("→ Iniciando pipeline diário completo...", "info")
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(BASE_DIR / "run_diario.py"),
+            sys.executable,
+            str(BASE_DIR / "run_diario.py"),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(BASE_DIR),
@@ -337,16 +359,21 @@ async def _task_pipeline():
         async for linha in proc.stdout:
             txt = linha.decode("utf-8", errors="replace").strip()
             if txt:
-                tipo = "ok" if "✅" in txt or "✓" in txt else \
-                       "err" if "✗" in txt else \
-                       "ia" if "🤖" in txt else \
-                       "warn" if "⚠" in txt else "info"
+                tipo = (
+                    "ok"
+                    if "✅" in txt or "✓" in txt
+                    else (
+                        "err"
+                        if "✗" in txt
+                        else "ia" if "🤖" in txt else "warn" if "⚠" in txt else "info"
+                    )
+                )
                 _push_log(txt, tipo)
         await proc.wait()
         rc = proc.returncode
         _push_log(
             "✅ Pipeline concluído!" if rc == 0 else "✗ Pipeline com erros",
-            "ok" if rc == 0 else "err"
+            "ok" if rc == 0 else "err",
         )
     except Exception as e:
         _push_log(f"✗ Erro: {e}", "err")
@@ -358,16 +385,17 @@ async def _task_pipeline():
 @app.get("/api/pipeline/status")
 async def pipeline_status():
     return {
-        "processando":     _estado["processando"],
+        "processando": _estado["processando"],
         "ultimo_pipeline": _estado["ultimo_pipeline"],
-        "daemon_ativo":    _estado["daemon_ativo"],
+        "daemon_ativo": _estado["daemon_ativo"],
     }
 
 
 # ── YouTube → Shorts ─────────────────────────────────
 
+
 class YouTubeRequest(BaseModel):
-    url:    str
+    url: str
     modelo: str = "base"
     forcar: bool = False
 
@@ -383,9 +411,12 @@ async def processar_youtube(req: YouTubeRequest, bg: BackgroundTasks, request: R
 
     # Validação melhorada de URL do YouTube
     import re
-    YOUTUBE_REGEX = r'^https?://(www\.)?(youtube\.com|youtu\.be)/.+'
+
+    YOUTUBE_REGEX = r"^https?://(www\.)?(youtube\.com|youtu\.be)/.+"
     if not re.match(YOUTUBE_REGEX, req.url):
-        raise HTTPException(400, "URL inválida. Deve ser do YouTube (youtube.com ou youtu.be)")
+        raise HTTPException(
+            400, "URL inválida. Deve ser do YouTube (youtube.com ou youtu.be)"
+        )
 
     bg.add_task(_task_youtube, req.url, req.modelo, req.forcar)
     return {"status": "iniciado", "url": req.url}
@@ -396,8 +427,12 @@ async def _task_youtube(url: str, modelo: str, forcar: bool):
     try:
         _push_log(f"→ Processando: {url}", "info")
         args = [
-            sys.executable, str(BASE_DIR / "youtube_para_shorts.py"),
-            "--url", url, "--modelo", modelo
+            sys.executable,
+            str(BASE_DIR / "youtube_para_shorts.py"),
+            "--url",
+            url,
+            "--modelo",
+            modelo,
         ]
         if forcar:
             args.append("--forcar")
@@ -410,15 +445,17 @@ async def _task_youtube(url: str, modelo: str, forcar: bool):
         async for linha in proc.stdout:
             txt = linha.decode("utf-8", errors="replace").strip()
             if txt:
-                tipo = "ok" if "✅" in txt or "✓" in txt else \
-                       "err" if "✗" in txt else \
-                       "ia" if "🤖" in txt else "info"
+                tipo = (
+                    "ok"
+                    if "✅" in txt or "✓" in txt
+                    else "err" if "✗" in txt else "ia" if "🤖" in txt else "info"
+                )
                 _push_log(txt, tipo)
         await proc.wait()
         rc = proc.returncode
         _push_log(
             "✅ Shorts gerados com sucesso!" if rc == 0 else "✗ Erro no processamento",
-            "ok" if rc == 0 else "err"
+            "ok" if rc == 0 else "err",
         )
     except Exception as e:
         _push_log(f"✗ Erro: {e}", "err")
@@ -428,8 +465,11 @@ async def _task_youtube(url: str, modelo: str, forcar: bool):
 
 # ── Vídeo local ──────────────────────────────────────
 
+
 @app.post("/api/local/processar")
-async def processar_local(request: Request, bg: BackgroundTasks, arquivo: UploadFile = File(...)):
+async def processar_local(
+    request: Request, bg: BackgroundTasks, arquivo: UploadFile = File(...)
+):
     """Recebe upload de vídeo e processa em background."""
     if _estado["processando"]:
         raise HTTPException(409, "Já há um processo em execução")
@@ -439,11 +479,13 @@ async def processar_local(request: Request, bg: BackgroundTasks, arquivo: Upload
     ext = Path(filename).suffix.lower()
 
     if ext not in EXTENSOES_VIDEO_VALIDAS:
-        raise HTTPException(400, f"Extensão não permitida. Use: {', '.join(EXTENSOES_VIDEO_VALIDAS)}")
+        raise HTTPException(
+            400, f"Extensão não permitida. Use: {', '.join(EXTENSOES_VIDEO_VALIDAS)}"
+        )
 
     # Sanitizar nome do arquivo (prevenir path traversal)
     nome_seguro = Path(filename).name  # remove qualquer path, mantém só o nome
-    timestamp = datetime.now().strftime('%H%M%S')
+    timestamp = datetime.now().strftime("%H%M%S")
 
     # Salvar arquivo temporário com nome seguro
     tmp_path = secure_path("downloads", f"upload_{timestamp}_{nome_seguro}")
@@ -451,7 +493,10 @@ async def processar_local(request: Request, bg: BackgroundTasks, arquivo: Upload
 
     conteudo = await arquivo.read()
     tmp_path.write_bytes(conteudo)
-    _push_log(f"→ Arquivo recebido: {arquivo.filename} ({len(conteudo)/1024/1024:.1f}MB)", "info")
+    _push_log(
+        f"→ Arquivo recebido: {arquivo.filename} ({len(conteudo)/1024/1024:.1f}MB)",
+        "info",
+    )
 
     bg.add_task(_task_local, str(tmp_path))
     return {"status": "iniciado", "arquivo": arquivo.filename}
@@ -462,8 +507,10 @@ async def _task_local(caminho: str):
     try:
         _push_log(f"→ Processando: {Path(caminho).name}", "info")
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(BASE_DIR / "processar_video.py"),
-            "--arquivo", caminho,
+            sys.executable,
+            str(BASE_DIR / "processar_video.py"),
+            "--arquivo",
+            caminho,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(BASE_DIR),
@@ -471,15 +518,17 @@ async def _task_local(caminho: str):
         async for linha in proc.stdout:
             txt = linha.decode("utf-8", errors="replace").strip()
             if txt:
-                tipo = "ok" if "✅" in txt or "✓" in txt else \
-                       "err" if "✗" in txt else \
-                       "ia" if "🤖" in txt else "info"
+                tipo = (
+                    "ok"
+                    if "✅" in txt or "✓" in txt
+                    else "err" if "✗" in txt else "ia" if "🤖" in txt else "info"
+                )
                 _push_log(txt, tipo)
         await proc.wait()
         rc = proc.returncode
         _push_log(
             "✅ Vídeo processado!" if rc == 0 else "✗ Erro no processamento",
-            "ok" if rc == 0 else "err"
+            "ok" if rc == 0 else "err",
         )
     except Exception as e:
         _push_log(f"✗ Erro: {e}", "err")
@@ -488,6 +537,7 @@ async def _task_local(caminho: str):
 
 
 # ── Agendador ────────────────────────────────────────
+
 
 @app.post("/api/agendar/lote")
 async def agendar_lote(bg: BackgroundTasks):
@@ -500,6 +550,7 @@ async def _task_agendar_lote():
     try:
         _push_log("→ Agendando vídeos prontos...", "info")
         from agendador import agendar_lote
+
         banco.inicializar()
         # Rodar em thread para não bloquear event loop
         loop = asyncio.get_event_loop()
@@ -516,6 +567,7 @@ async def agendar_corte(corte_id: int, data_hora: Optional[str] = None):
     try:
         banco.inicializar()
         from agendador import agendar_corte_automatico
+
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, agendar_corte_automatico, corte_id, data_hora)
         return {"status": "agendado", "corte_id": corte_id}
@@ -534,6 +586,7 @@ async def _task_postar_agora(corte_id: int):
     try:
         _push_log(f"→ Postando corte {corte_id}...", "info")
         from agendador import postar_agora
+
         loop = asyncio.get_event_loop()
         ok = await loop.run_in_executor(None, postar_agora, corte_id)
         if ok:
@@ -545,6 +598,7 @@ async def _task_postar_agora(corte_id: int):
 
 
 # ── Daemon ───────────────────────────────────────────
+
 
 @app.post("/api/daemon/iniciar")
 async def iniciar_daemon():
@@ -560,6 +614,7 @@ async def iniciar_daemon():
             try:
                 banco.inicializar()
                 from agendador import verificar_e_postar_agendados
+
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, verificar_e_postar_agendados)
             except Exception as e:
@@ -588,6 +643,7 @@ async def daemon_status():
 
 # ── Analytics ────────────────────────────────────────
 
+
 @app.post("/api/analytics/coletar")
 async def coletar_metricas(bg: BackgroundTasks, dias: int = 28):
     """Coleta métricas do YouTube Analytics em background."""
@@ -599,13 +655,14 @@ async def _task_coletar(dias: int):
     try:
         _push_log(f"→ Coletando métricas dos últimos {dias} dias...", "info")
         from analytics import coletar_metricas
+
         loop = asyncio.get_event_loop()
         resultado = await loop.run_in_executor(None, coletar_metricas, dias)
         _push_log(
             f"✅ Coletados: {resultado['coletados']} | "
             f"Sem dados: {resultado['sem_dados']} | "
             f"Erros: {resultado['erros']}",
-            "ok"
+            "ok",
         )
     except Exception as e:
         _push_log(f"✗ Erro na coleta: {e}", "err")
@@ -623,6 +680,7 @@ async def _task_analisar():
     try:
         _push_log("🤖 IA analisando performance...", "ia")
         from analytics import analisar_com_ia
+
         loop = asyncio.get_event_loop()
         rec = await loop.run_in_executor(None, analisar_com_ia)
         if rec:
@@ -639,29 +697,36 @@ async def get_analytics_dados():
     """Retorna dados de métricas para os gráficos da interface."""
     try:
         from analytics import _carregar_dados_para_analise, obter_ultima_recomendacao
+
         banco.inicializar()
         dados = _carregar_dados_para_analise()
-        rec   = obter_ultima_recomendacao()
+        rec = obter_ultima_recomendacao()
         return {
-            "por_formato":     dados.get("por_formato", []),
-            "top_videos":      dados.get("top_videos", []),
-            "por_horario":     dados.get("por_horario", []),
-            "recomendacao":    rec,
+            "por_formato": dados.get("por_formato", []),
+            "top_videos": dados.get("top_videos", []),
+            "por_horario": dados.get("por_horario", []),
+            "recomendacao": rec,
         }
     except Exception as e:
         logger.error("Erro ao buscar analytics: %s", e)
-        return {"por_formato": [], "top_videos": [], "por_horario": [], "recomendacao": None}
+        return {
+            "por_formato": [],
+            "top_videos": [],
+            "por_horario": [],
+            "recomendacao": None,
+        }
 
 
 # ── Configurações ────────────────────────────────────
 
+
 class ConfigRequest(BaseModel):
-    nome_canal:       Optional[str] = None
-    idioma:           Optional[str] = None
-    modelo_whisper:   Optional[str] = None
-    postar_tiktok:    Optional[bool] = None
-    postar_youtube:   Optional[bool] = None
-    analytics_auto:   Optional[bool] = None
+    nome_canal: Optional[str] = None
+    idioma: Optional[str] = None
+    modelo_whisper: Optional[str] = None
+    postar_tiktok: Optional[bool] = None
+    postar_youtube: Optional[bool] = None
+    analytics_auto: Optional[bool] = None
 
 
 @app.get("/api/config")
@@ -669,13 +734,14 @@ async def get_config():
     """Retorna configuração atual."""
     try:
         from config import cfg
+
         return {
-            "nome_canal":     cfg.nome_canal,
-            "idioma":         cfg.idioma,
+            "nome_canal": cfg.nome_canal,
+            "idioma": cfg.idioma,
             "modelo_whisper": cfg.modelo_whisper,
-            "tem_anthropic":  bool(cfg.chave_anthropic),
+            "tem_anthropic": bool(cfg.chave_anthropic),
             "tem_elevenlabs": bool(cfg.chave_elevenlabs),
-            "tem_telegram":   cfg.tem_telegram(),
+            "tem_telegram": cfg.tem_telegram(),
         }
     except Exception as e:
         return {"erro": str(e)}
@@ -689,7 +755,7 @@ async def salvar_config(req: ConfigRequest):
     """
     try:
         config_path = BASE_DIR / "config.py"
-        src         = config_path.read_text(encoding="utf-8")
+        src = config_path.read_text(encoding="utf-8")
 
         if req.nome_canal:
             src = _substituir_valor(src, "nome_canal", f'"{req.nome_canal}"')
@@ -702,6 +768,7 @@ async def salvar_config(req: ConfigRequest):
 
         # Recarregar config
         import config
+
         importlib.reload(config)
 
         _push_log("✅ Configurações salvas", "ok")
@@ -714,11 +781,7 @@ async def salvar_config(req: ConfigRequest):
 
 def _substituir_valor(src: str, campo: str, novo_valor: str) -> str:
     """Substitui valor de um campo no config.py preservando indentação."""
-    return re.sub(
-        rf'(\s+{campo}\s*=\s*)([^\n]+)',
-        rf'\g<1>{novo_valor}',
-        src
-    )
+    return re.sub(rf"(\s+{campo}\s*=\s*)([^\n]+)", rf"\g<1>{novo_valor}", src)
 
 
 @app.post("/api/config/testar")
@@ -729,13 +792,15 @@ async def testar_conexoes():
     # Anthropic
     try:
         from config import cfg
+
         if cfg.chave_anthropic:
             import anthropic
+
             cliente = anthropic.Anthropic(api_key=cfg.chave_anthropic)
             cliente.messages.create(
                 model="claude-haiku-4",
                 max_tokens=5,
-                messages=[{"role":"user","content":"ok"}]
+                messages=[{"role": "user", "content": "ok"}],
             )
             resultado["anthropic"] = "ok"
         else:
@@ -760,6 +825,7 @@ async def testar_conexoes():
     # Telegram
     try:
         from config import cfg
+
         resultado["telegram"] = "ok" if cfg.tem_telegram() else "nao_configurado"
     except Exception:
         resultado["telegram"] = "erro"
@@ -768,6 +834,7 @@ async def testar_conexoes():
 
 
 # ── URLs diárias ─────────────────────────────────────
+
 
 @app.get("/api/urls-diarias")
 async def get_urls_diarias():
@@ -786,6 +853,7 @@ async def salvar_urls_diarias(body: dict):
 
 # ── Output — listar vídeos gerados ───────────────────
 
+
 @app.get("/api/output/listar")
 async def listar_output():
     """Lista arquivos na pasta output/."""
@@ -793,14 +861,20 @@ async def listar_output():
     if not output_dir.exists():
         return {"arquivos": []}
     arquivos = []
-    for f in sorted(output_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True)[:20]:
+    for f in sorted(
+        output_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True
+    )[:20]:
         txt = f.with_suffix(".txt")
-        arquivos.append({
-            "nome":       f.name,
-            "tamanho_mb": round(f.stat().st_size / 1024 / 1024, 1),
-            "criado_em":  datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m %H:%M"),
-            "tem_txt":    txt.exists(),
-        })
+        arquivos.append(
+            {
+                "nome": f.name,
+                "tamanho_mb": round(f.stat().st_size / 1024 / 1024, 1),
+                "criado_em": datetime.fromtimestamp(f.stat().st_mtime).strftime(
+                    "%d/%m %H:%M"
+                ),
+                "tem_txt": txt.exists(),
+            }
+        )
     return {"arquivos": arquivos}
 
 
@@ -818,23 +892,26 @@ async def download_output(nome: str):
 
 # ── Health ───────────────────────────────────────────
 
+
 @app.get("/api/health")
 async def health():
     return {
-        "status":      "ok",
+        "status": "ok",
         "processando": _estado["processando"],
-        "daemon":      _estado["daemon_ativo"],
-        "hora":        datetime.now().strftime("%H:%M:%S"),
+        "daemon": _estado["daemon_ativo"],
+        "hora": datetime.now().strftime("%H:%M:%S"),
     }
 
 
 # ── Main ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import webbrowser, threading
+    import threading
+    import webbrowser
 
     # Validar configuração antes de iniciar o servidor
     from config import cfg
+
     erros = cfg.validar_chaves()
     if erros:
         print("\n❌ Configuração incompleta:")
@@ -843,11 +920,11 @@ if __name__ == "__main__":
         print("\nCorrija o .env e tente novamente.")
         sys.exit(1)
 
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print("  BoomVibes — Dashboard Local")
-    print("═"*55)
-    print(f"\n  ✅ Iniciando em: http://localhost:8000")
-    print(f"  Ctrl+C para parar\n")
+    print("═" * 55)
+    print("\n  ✅ Iniciando em: http://localhost:8000")
+    print("  Ctrl+C para parar\n")
 
     # Abrir navegador após 1.5s
     def abrir_browser():
@@ -859,8 +936,8 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="127.0.0.1",  # uso local apenas — painel controla postagem e
-                            # gasto de API, não expor a outros dispositivos
-                            # da rede sem necessidade real (ver QA scan)
+        # gasto de API, não expor a outros dispositivos
+        # da rede sem necessidade real (ver QA scan)
         port=8000,
         log_level="warning",  # silenciar logs do uvicorn no terminal
     )

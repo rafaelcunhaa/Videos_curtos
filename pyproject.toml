@@ -1,4 +1,4 @@
-﻿[tool.black]
+[tool.black]
 line-length = 88
 target-version = ['py314']
 include = '\.pyi?$'
@@ -6,6 +6,8 @@ include = '\.pyi?$'
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings

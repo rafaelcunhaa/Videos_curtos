@@ -2,18 +2,18 @@
 Testes do Servidor API - Endpoints FastAPI.
 Valida rotas, validação de entrada, rate limiting e respostas.
 """
+
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-import json
-from datetime import datetime
 
 
 @pytest.fixture
 def client(config_teste):
     """Cliente de teste do FastAPI."""
     from servidor import app
+
     return TestClient(app)
 
 
@@ -37,19 +37,14 @@ class TestEndpointUpload:
 
     def test_upload_video_valido(self, client, video_fake, monkeypatch):
         """Upload de vídeo válido deve ser aceito (202 async ou 422 validação)."""
+
         # Mock da função secure_path para evitar IO real
         def mock_secure_path(base, filename):
             return video_fake.parent / filename
 
         monkeypatch.setattr("servidor.secure_path", mock_secure_path)
 
-        files = {
-            "arquivo": (
-                "test_video.mp4",
-                video_fake.read_bytes(),
-                "video/mp4"
-            )
-        }
+        files = {"arquivo": ("test_video.mp4", video_fake.read_bytes(), "video/mp4")}
 
         response = client.post("/api/local/processar", files=files)
 
@@ -70,7 +65,7 @@ class TestEndpointUpload:
             "arquivo": (
                 "malware.exe",
                 fake_exe.read_bytes(),
-                "application/x-msdownload"
+                "application/x-msdownload",
             )
         }
 
@@ -82,14 +77,19 @@ class TestEndpointUpload:
 class TestEndpointYouTube:
     """Testes do endpoint de processamento de YouTube."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_rate_limit(self, monkeypatch):
+        """Limpa o store de rate limit antes de cada teste."""
+        from servidor import _rate_limit_store
+        _rate_limit_store.clear()
+
     @patch("servidor._task_youtube")
     def test_youtube_url_valida(self, mock_task, client):
         """URL válida do YouTube deve ser aceita."""
         mock_task.return_value = {"status": "processando"}
 
         response = client.post(
-            "/api/youtube/processar",
-            json={"url": "https://youtube.com/watch?v=abc123"}
+            "/api/youtube/processar", json={"url": "https://youtube.com/watch?v=abc123"}
         )
 
         # Pode retornar 200, 202, ou 429 (rate limit)
@@ -98,8 +98,7 @@ class TestEndpointYouTube:
     def test_youtube_url_invalida(self, client):
         """URL inválida deve ser rejeitada."""
         response = client.post(
-            "/api/youtube/processar",
-            json={"url": "https://vimeo.com/123456"}
+            "/api/youtube/processar", json={"url": "https://vimeo.com/123456"}
         )
 
         assert response.status_code == 400
@@ -108,10 +107,7 @@ class TestEndpointYouTube:
 
     def test_youtube_sem_url(self, client):
         """Requisição sem URL deve retornar erro."""
-        response = client.post(
-            "/api/youtube/processar",
-            json={}
-        )
+        response = client.post("/api/youtube/processar", json={})
 
         assert response.status_code in [400, 422]
 
@@ -125,10 +121,7 @@ class TestEndpointYouTube:
         ]
 
         for url in urls_invalidas:
-            response = client.post(
-                "/api/youtube/processar",
-                json={"url": url}
-            )
+            response = client.post("/api/youtube/processar", json={"url": url})
             assert response.status_code in [400, 422]
 
 
@@ -141,11 +134,7 @@ class TestEndpointGerar:
         """Requisição válida deve ser aceita."""
         mock_task.return_value = {"status": "gerando"}
 
-        payload = {
-            "tema": "Tecnologia",
-            "tipo": "denso",
-            "quantidade": 1
-        }
+        payload = {"tema": "Tecnologia", "tipo": "denso", "quantidade": 1}
 
         response = client.post("/api/gerar", json=payload)
 
@@ -154,10 +143,7 @@ class TestEndpointGerar:
 
     def test_gerar_sem_tema(self, client):
         """Requisição sem tema deve ser aceita (tema é opcional)."""
-        response = client.post(
-            "/api/gerar",
-            json={"quantidade": 1}
-        )
+        response = client.post("/api/gerar", json={"quantidade": 1})
 
         # tema é Optional no modelo, então aceita sem tema
         assert response.status_code in [200, 202, 429]
@@ -205,6 +191,7 @@ class TestRateLimitingAPI:
     def test_rate_limit_youtube(self, client):
         """Endpoint YouTube deve ter rate limiting."""
         from servidor import _rate_limit_store
+
         _rate_limit_store.clear()
 
         # Fazer várias requisições
@@ -212,7 +199,7 @@ class TestRateLimitingAPI:
         for i in range(15):
             response = client.post(
                 "/api/youtube/processar",
-                json={"url": f"https://youtube.com/watch?v=test{i}"}
+                json={"url": f"https://youtube.com/watch?v=test{i}"},
             )
             respostas.append(response.status_code)
 
@@ -222,14 +209,14 @@ class TestRateLimitingAPI:
     def test_rate_limit_gerar(self, client):
         """Endpoint gerar deve ter rate limiting."""
         from servidor import _rate_limit_store
+
         _rate_limit_store.clear()
 
         # Fazer várias requisições
         respostas = []
         for i in range(10):
             response = client.post(
-                "/api/gerar",
-                json={"tema": f"Tema {i}", "quantidade": 1}
+                "/api/gerar", json={"tema": f"Tema {i}", "quantidade": 1}
             )
             respostas.append(response.status_code)
 
@@ -259,7 +246,7 @@ class TestValidacaoEntrada:
         response = client.post(
             "/api/gerar",
             data="invalid json{{{",
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
 
         assert response.status_code == 422
@@ -268,7 +255,7 @@ class TestValidacaoEntrada:
         """Tipos incorretos devem ser rejeitados."""
         response = client.post(
             "/api/gerar",
-            json={"tema": 123, "quantidade": "not_a_number"}  # tipos errados
+            json={"tema": 123, "quantidade": "not_a_number"},  # tipos errados
         )
 
         assert response.status_code in [400, 422]
@@ -301,7 +288,7 @@ class TestFluxoCompleto:
 
         response1 = client.post(
             "/api/youtube/processar",
-            json={"url": "https://youtube.com/watch?v=test123"}
+            json={"url": "https://youtube.com/watch?v=test123"},
         )
 
         # Pode ter rate limit de testes anteriores
@@ -312,10 +299,7 @@ class TestFluxoCompleto:
         if response1.status_code in [200, 202]:
             mock_pipeline.return_value = {"cortes": 3, "status": "gerado"}
 
-            response2 = client.post(
-                "/api/pipeline/rodar",
-                json={}
-            )
+            response2 = client.post("/api/pipeline/rodar", json={})
 
             # Pode não ter implementação ou rate limit
             assert response2.status_code in [200, 202, 404, 429]
@@ -343,8 +327,7 @@ class TestErrorHandling:
         mock_task.return_value = None
 
         response = client.post(
-            "/api/youtube/processar",
-            json={"url": "https://youtube.com/watch?v=test"}
+            "/api/youtube/processar", json={"url": "https://youtube.com/watch?v=test"}
         )
 
         # Deve aceitar a requisição (200/202) ou rate limit (429)
@@ -352,8 +335,7 @@ class TestErrorHandling:
 
         # Verificar que endpoint não crasha em erro de validação
         response_invalid = client.post(
-            "/api/youtube/processar",
-            json={}  # URL obrigatória faltando
+            "/api/youtube/processar", json={}  # URL obrigatória faltando
         )
         assert response_invalid.status_code in [400, 422]
 
@@ -365,6 +347,7 @@ class TestLogging:
     def test_request_logging(self, client, caplog):
         """Requisições devem ser logadas."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         client.get("/api/health")
@@ -376,6 +359,7 @@ class TestLogging:
     def test_error_logging(self, client, caplog):
         """Erros devem ser logados."""
         import logging
+
         caplog.set_level(logging.ERROR)
 
         # Fazer requisição que gera erro
@@ -392,10 +376,7 @@ class TestSecurity:
 
     def test_sql_injection_attempt(self, client):
         """Tentativas de SQL injection devem ser bloqueadas."""
-        payload = {
-            "tema": "'; DROP TABLE videos; --",
-            "quantidade": 1
-        }
+        payload = {"tema": "'; DROP TABLE videos; --", "quantidade": 1}
 
         response = client.post("/api/gerar", json=payload)
 
@@ -405,10 +386,7 @@ class TestSecurity:
 
     def test_xss_attempt(self, client):
         """Tentativas de XSS devem ser sanitizadas."""
-        payload = {
-            "tema": "<script>alert('xss')</script>",
-            "quantidade": 1
-        }
+        payload = {"tema": "<script>alert('xss')</script>", "quantidade": 1}
 
         response = client.post("/api/gerar", json=payload)
 
@@ -421,6 +399,7 @@ class TestSecurity:
 
     def test_path_traversal_attempt(self, client, tmp_path, monkeypatch):
         """Tentativas de path traversal devem ser bloqueadas."""
+
         def mock_secure_path(base, filename):
             # Validar que filename foi sanitizado
             assert ".." not in filename
@@ -434,7 +413,7 @@ class TestSecurity:
             "arquivo": (
                 "../../etc/passwd.mp4",  # tentativa de path traversal
                 b"fake content",
-                "video/mp4"
+                "video/mp4",
             )
         }
 

@@ -2,13 +2,11 @@
 Configuração global de testes - fixtures compartilhadas.
 Executa antes de cada teste para preparar ambiente isolado.
 """
+
 import os
 import sys
 import tempfile
-import sqlite3
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Generator
 
 import pytest
 
@@ -21,6 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # FIXTURES DE BANCO DE DADOS
 # ══════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def banco_teste(monkeypatch):
     """
@@ -32,6 +31,7 @@ def banco_teste(monkeypatch):
 
     # Troca o banco real pelo temporário
     import banco
+
     monkeypatch.setattr(banco, "BANCO_ARQUIVO", caminho)
 
     banco.inicializar()
@@ -55,7 +55,7 @@ def banco_populado(banco_teste):
         url="https://youtube.com/watch?v=test123",
         titulo="Vídeo de Teste",
         duracao_s=180.0,
-        caminho_arquivo=Path("/tmp/test.mp4")
+        caminho_arquivo=Path("/tmp/test.mp4"),
     )
 
     # Inserir cortes de teste
@@ -68,15 +68,15 @@ def banco_populado(banco_teste):
             "titulo": "Primeiro Corte",
             "gancho": "Gancho de teste",
             "inicio": 0.0,
-            "fim": 55.0
+            "fim": 55.0,
         },
         caminho_video=Path("/tmp/corte1.mp4"),
         caminho_txt=Path("/tmp/corte1.txt"),
         desc_info={
             "titulo_yt": "Título YT",
             "descricao": "Descrição teste",
-            "hashtags": ["#teste", "#demo"]
-        }
+            "hashtags": ["#teste", "#demo"],
+        },
     )
 
     corte2_id = banco.registrar_corte(
@@ -88,24 +88,25 @@ def banco_populado(banco_teste):
             "titulo": "Segundo Corte",
             "gancho": "Outro gancho",
             "inicio": 60.0,
-            "fim": 95.0
+            "fim": 95.0,
         },
         caminho_video=Path("/tmp/corte2.mp4"),
         caminho_txt=Path("/tmp/corte2.txt"),
-        desc_info=None
+        desc_info=None,
     )
 
     return {
         "video_id": video_id,
         "corte1_id": corte1_id,
         "corte2_id": corte2_id,
-        "banco_path": banco_teste
+        "banco_path": banco_teste,
     }
 
 
 # ══════════════════════════════════════════════════════════
 # FIXTURES DE ARQUIVOS TEMPORÁRIOS
 # ══════════════════════════════════════════════════════════
+
 
 @pytest.fixture
 def tmp_dirs(tmp_path):
@@ -152,6 +153,7 @@ def audio_fake(tmp_path: Path) -> Path:
 # FIXTURES DE CONFIGURAÇÃO
 # ══════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def config_teste(monkeypatch, tmp_path):
     """
@@ -183,21 +185,26 @@ def config_teste(monkeypatch, tmp_path):
 # FIXTURES DE MOCKS DE API
 # ══════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def mock_anthropic_success(monkeypatch):
     """
     Mock da API Anthropic retornando sucesso.
     Simula resposta válida sem custo real.
     """
+
     class MockResponse:
         def __init__(self):
-            self.content = [type('obj', (), {
-                'text': '[{"tipo":"denso","inicio":10.0,"fim":65.0,"titulo":"Teste","gancho":"Gancho teste","motivo":"Teste"}]'
-            })]
-            self.usage = type('obj', (), {
-                'input_tokens': 150,
-                'output_tokens': 250
-            })
+            self.content = [
+                type(
+                    "obj",
+                    (),
+                    {
+                        "text": '[{"tipo":"denso","inicio":10.0,"fim":65.0,"titulo":"Teste","gancho":"Gancho teste","motivo":"Teste"}]'
+                    },
+                )
+            ]
+            self.usage = type("obj", (), {"input_tokens": 150, "output_tokens": 250})
 
     class MockClient:
         class messages:
@@ -211,6 +218,7 @@ def mock_anthropic_success(monkeypatch):
 @pytest.fixture
 def mock_subprocess_success(monkeypatch):
     """Mock do subprocess retornando sucesso."""
+
     class MockProcess:
         returncode = 0
         stdout = '{"format":{"duration":"180.5"}}'
@@ -220,6 +228,7 @@ def mock_subprocess_success(monkeypatch):
         return MockProcess()
 
     import subprocess
+
     monkeypatch.setattr(subprocess, "run", fake_run)
     return fake_run
 
@@ -227,6 +236,7 @@ def mock_subprocess_success(monkeypatch):
 # ══════════════════════════════════════════════════════════
 # FIXTURES DE TEMPO
 # ══════════════════════════════════════════════════════════
+
 
 @pytest.fixture
 def freeze_time(monkeypatch):
@@ -257,17 +267,14 @@ def freeze_time(monkeypatch):
 # MARKERS CUSTOMIZADOS
 # ══════════════════════════════════════════════════════════
 
+
 def pytest_configure(config):
     """Registra markers customizados."""
-    config.addinivalue_line(
-        "markers", "slow: marca testes lentos (mais de 1s)"
-    )
+    config.addinivalue_line("markers", "slow: marca testes lentos (mais de 1s)")
     config.addinivalue_line(
         "markers", "integration: testes de integração que tocam múltiplos módulos"
     )
     config.addinivalue_line(
         "markers", "security: testes de segurança e validação de entrada"
     )
-    config.addinivalue_line(
-        "markers", "unit: testes unitários isolados"
-    )
+    config.addinivalue_line("markers", "unit: testes unitários isolados")

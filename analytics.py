@@ -30,21 +30,23 @@
 =======================================================
 """
 
+import argparse
 import json
 import logging
-import sys
 import re
-import argparse
-import anthropic
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
-from retry import chamar_anthropic
+
+import anthropic
+
 import banco
 from config import cfg
+from retry import chamar_anthropic
+
 try:
-    from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 except ImportError:
     Credentials = None
@@ -92,6 +94,7 @@ def _garantir_tabelas():
 
 # ── COLETA DE MÉTRICAS ────────────────────────────────────
 
+
 def _autenticar_youtube():
     """Reutiliza autenticação do agendador."""
     if not Credentials or not Request or not build:
@@ -99,7 +102,7 @@ def _autenticar_youtube():
         return None, None
 
     TOKEN_FILE = "token.json"
-    SCOPES     = [
+    SCOPES = [
         "https://www.googleapis.com/auth/youtube.readonly",
         "https://www.googleapis.com/auth/yt-analytics.readonly",
         "https://www.googleapis.com/auth/youtube.upload",
@@ -114,8 +117,8 @@ def _autenticar_youtube():
         creds.refresh(Request())
         Path(TOKEN_FILE).write_text(creds.to_json())
 
-    yt        = build("youtube",          "v3",          credentials=creds)
-    analytics = build("youtubeAnalytics", "v2",          credentials=creds)
+    yt = build("youtube", "v3", credentials=creds)
+    analytics = build("youtubeAnalytics", "v2", credentials=creds)
     return yt, analytics
 
 
@@ -132,33 +135,38 @@ def _obter_channel_id(yt) -> Optional[str]:
     return None
 
 
-def _buscar_metricas_video(analytics, channel_id: str,
-                            video_id: str,
-                            data_inicio: str,
-                            data_fim: str) -> dict:
+def _buscar_metricas_video(
+    analytics, channel_id: str, video_id: str, data_inicio: str, data_fim: str
+) -> dict:
     """
     Busca métricas de um vídeo específico via YouTube Analytics API.
     Retorna dict com todas as métricas ou vazio em falha.
     """
     # analytics is a googleapiclient.discovery.Resource
     try:
-        res = analytics.reports().query(
-            ids=f"channel=={channel_id}",
-            startDate=data_inicio,
-            endDate=data_fim,
-            metrics=",".join([
-                "views",
-                "likes",
-                "comments",
-                "shares",
-                "estimatedMinutesWatched",
-                "averageViewPercentage",
-                "subscribersGained",
-                "annotationClickThroughRate",
-            ]),
-            filters=f"video=={video_id}",
-            dimensions="video",
-        ).execute()
+        res = (
+            analytics.reports()
+            .query(
+                ids=f"channel=={channel_id}",
+                startDate=data_inicio,
+                endDate=data_fim,
+                metrics=",".join(
+                    [
+                        "views",
+                        "likes",
+                        "comments",
+                        "shares",
+                        "estimatedMinutesWatched",
+                        "averageViewPercentage",
+                        "subscribersGained",
+                        "annotationClickThroughRate",
+                    ]
+                ),
+                filters=f"video=={video_id}",
+                dimensions="video",
+            )
+            .execute()
+        )
 
         rows = res.get("rows", [])
         if not rows:
@@ -169,14 +177,14 @@ def _buscar_metricas_video(analytics, channel_id: str,
         #        estimatedMinutesWatched, averageViewPercentage,
         #        subscribersGained, annotationClickThroughRate
         return {
-            "views":               int(row[1])   if len(row) > 1 else 0,
-            "likes":               int(row[2])   if len(row) > 2 else 0,
-            "comentarios":         int(row[3])   if len(row) > 3 else 0,
-            "compartilhamentos":   int(row[4])   if len(row) > 4 else 0,
-            "minutos_assistidos":  float(row[5]) if len(row) > 5 else 0.0,
-            "retencao_pct":        float(row[6]) if len(row) > 6 else 0.0,
-            "inscritos_ganhos":    int(row[7])   if len(row) > 7 else 0,
-            "ctr_pct":             float(row[8]) if len(row) > 8 else 0.0,
+            "views": int(row[1]) if len(row) > 1 else 0,
+            "likes": int(row[2]) if len(row) > 2 else 0,
+            "comentarios": int(row[3]) if len(row) > 3 else 0,
+            "compartilhamentos": int(row[4]) if len(row) > 4 else 0,
+            "minutos_assistidos": float(row[5]) if len(row) > 5 else 0.0,
+            "retencao_pct": float(row[6]) if len(row) > 6 else 0.0,
+            "inscritos_ganhos": int(row[7]) if len(row) > 7 else 0,
+            "ctr_pct": float(row[8]) if len(row) > 8 else 0.0,
         }
 
     except Exception as e:
@@ -224,19 +232,18 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
         logger.error("Não foi possível obter o channel_id")
         return resultado
 
-    data_fim    = date.today().isoformat()
+    data_fim = date.today().isoformat()
     data_inicio = (date.today() - timedelta(days=dias_atras)).isoformat()
 
     for corte in cortes:
-        corte_id  = corte["id"]
-        video_id  = corte["youtube_short_id"]
-        titulo    = (corte["titulo"] or "—")[:40]
+        corte_id = corte["id"]
+        video_id = corte["youtube_short_id"]
+        titulo = (corte["titulo"] or "—")[:40]
 
         print(f"  [{corte_id}] {titulo}...", end="", flush=True)
 
         metricas = _buscar_metricas_video(
-            analytics, channel_id, video_id,
-            data_inicio, data_fim
+            analytics, channel_id, video_id, data_inicio, data_fim
         )
 
         if not metricas:
@@ -247,7 +254,8 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
         # Salvar no banco
         try:
             with banco.get_conn() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO metricas
                         (corte_id, data_ref, views, likes, comentarios,
                          compartilhamentos, minutos_assistidos,
@@ -263,18 +271,23 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
                         ctr_pct              = excluded.ctr_pct,
                         inscritos_ganhos     = excluded.inscritos_ganhos,
                         coletado_em          = datetime('now','localtime')
-                """, (
-                    corte_id, data_fim,
-                    metricas["views"],
-                    metricas["likes"],
-                    metricas["comentarios"],
-                    metricas["compartilhamentos"],
-                    metricas["minutos_assistidos"],
-                    metricas["retencao_pct"],
-                    metricas["ctr_pct"],
-                    metricas["inscritos_ganhos"],
-                ))
-            print(f" {metricas['views']:,} views | {metricas['retencao_pct']:.0f}% retenção")
+                """,
+                    (
+                        corte_id,
+                        data_fim,
+                        metricas["views"],
+                        metricas["likes"],
+                        metricas["comentarios"],
+                        metricas["compartilhamentos"],
+                        metricas["minutos_assistidos"],
+                        metricas["retencao_pct"],
+                        metricas["ctr_pct"],
+                        metricas["inscritos_ganhos"],
+                    ),
+                )
+            print(
+                f" {metricas['views']:,} views | {metricas['retencao_pct']:.0f}% retenção"
+            )
             resultado["coletados"] += 1
 
         except Exception as e:
@@ -287,9 +300,10 @@ def coletar_metricas(dias_atras: int = 28) -> dict:
 
 # ── ANÁLISE COM IA ────────────────────────────────────────
 
+
 def _carregar_dados_para_analise() -> dict:
     """Carrega todos os dados de métricas para análise."""
-    
+
     with banco.get_conn() as conn:
         # Dados por formato
         por_formato = conn.execute("""
@@ -363,10 +377,10 @@ def _carregar_dados_para_analise() -> dict:
 
     return {
         "por_formato": [dict(r) for r in por_formato],
-        "top_videos":  [dict(r) for r in top_videos],
-        "piores":      [dict(r) for r in piores],
+        "top_videos": [dict(r) for r in top_videos],
+        "piores": [dict(r) for r in piores],
         "por_horario": [dict(r) for r in por_horario],
-        "ganchos":     [dict(r) for r in ganchos],
+        "ganchos": [dict(r) for r in ganchos],
     }
 
 
@@ -396,7 +410,7 @@ def analisar_com_ia() -> Optional[dict]:
     dados_texto = json.dumps(dados, ensure_ascii=False, indent=2, default=str)
 
     cliente = anthropic.Anthropic(api_key=cfg.chave_anthropic)
-    prompt  = f"""Você é um especialista em estratégia de conteúdo para TikTok e YouTube Shorts,
+    prompt = f"""Você é um especialista em estratégia de conteúdo para TikTok e YouTube Shorts,
 com foco em canais religiosos brasileiros.
 
 Analise as métricas de performance abaixo e forneça recomendações estratégicas
@@ -449,7 +463,7 @@ Seja específico e baseado nos dados — não genérico.
             cliente.messages.create,
             model=cfg.modelo_claude,
             max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
         )
 
         texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
@@ -457,10 +471,13 @@ Seja específico e baseado nos dados — não genérico.
 
         # Salvar no banco
         with banco.get_conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO recomendacoes_ia (tipo, conteudo)
                 VALUES ('analise_performance', ?)
-            """, (json.dumps(recomendacoes, ensure_ascii=False),))
+            """,
+                (json.dumps(recomendacoes, ensure_ascii=False),),
+            )
 
         logger.info("Recomendações da IA salvas no banco")
         return recomendacoes
@@ -487,8 +504,8 @@ def obter_ultima_recomendacao() -> Optional[dict]:
 
         if row:
             return {
-                "dados":      json.loads(row["conteudo"]),
-                "gerado_em":  row["gerado_em"],
+                "dados": json.loads(row["conteudo"]),
+                "gerado_em": row["gerado_em"],
             }
     except Exception as e:
         logger.warning("Erro ao buscar recomendação: %s", e)
@@ -498,6 +515,7 @@ def obter_ultima_recomendacao() -> Optional[dict]:
 
 # ── RELATÓRIOS ────────────────────────────────────────────
 
+
 def imprimir_relatorio():
     """Imprime relatório completo de performance."""
     _garantir_tabelas()
@@ -505,16 +523,18 @@ def imprimir_relatorio():
 
     dados = _carregar_dados_para_analise()
 
-    print("\n" + "═"*65)
+    print("\n" + "═" * 65)
     print("  RELATÓRIO DE PERFORMANCE — YouTube Shorts")
     print(f"  {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    print("═"*65)
+    print("═" * 65)
 
     # Performance por formato
     if dados["por_formato"]:
         print("\n📊 PERFORMANCE POR FORMATO\n")
-        print(f"  {'Formato':<12} {'Vídeos':>6} {'Avg Views':>10} {'Retenção':>9} {'Inscritos':>10}")
-        print("  " + "─"*55)
+        print(
+            f"  {'Formato':<12} {'Vídeos':>6} {'Avg Views':>10} {'Retenção':>9} {'Inscritos':>10}"
+        )
+        print("  " + "─" * 55)
         for f in dados["por_formato"]:
             print(
                 f"  {(f['tipo'] or '—'):<12} {f['total']:>6} "
@@ -526,7 +546,7 @@ def imprimir_relatorio():
     if dados["top_videos"]:
         print("\n🏆 TOP 10 VÍDEOS\n")
         print(f"  {'#':>2}  {'Views':>8}  {'Ret%':>5}  {'Tipo':<8}  Título")
-        print("  " + "─"*60)
+        print("  " + "─" * 60)
         for i, v in enumerate(dados["top_videos"], 1):
             titulo = (v["titulo"] or "—")[:30]
             print(
@@ -572,7 +592,8 @@ def imprimir_top(quantidade: int = 10):
     _garantir_tabelas()
 
     with banco.get_conn() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT c.titulo, c.tipo, c.duracao_s,
                    m.views, m.likes, m.retencao_pct,
                    m.inscritos_ganhos, c.postado_em
@@ -580,7 +601,9 @@ def imprimir_top(quantidade: int = 10):
             JOIN metricas m ON m.corte_id = c.id
             ORDER BY m.views DESC
             LIMIT ?
-        """, (int(quantidade),)).fetchall()
+        """,
+            (int(quantidade),),
+        ).fetchall()
 
     if not rows:
         print("  Nenhuma métrica disponível ainda.")
@@ -588,10 +611,10 @@ def imprimir_top(quantidade: int = 10):
 
     print(f"\n🏆 TOP {quantidade} VÍDEOS\n")
     print(f"  {'#':>2}  {'Views':>8}  {'Likes':>6}  {'Ret%':>5}  {'Dur':>4}  Título")
-    print("  " + "─"*65)
+    print("  " + "─" * 65)
     for i, r in enumerate(rows, 1):
         titulo = (r["titulo"] or "—")[:32]
-        dur    = f"{r['duracao_s']:.0f}s" if r["duracao_s"] else "—"
+        dur = f"{r['duracao_s']:.0f}s" if r["duracao_s"] else "—"
         print(
             f"  {i:>2}  {r['views']:>8,}  {r['likes']:>6,}  "
             f"{r['retencao_pct']:>5.1f}%  {dur:>4}  {titulo}"
@@ -607,10 +630,10 @@ def imprimir_recomendacoes():
         return
 
     d = rec["dados"]
-    print("\n" + "═"*60)
+    print("\n" + "═" * 60)
     print("  RECOMENDAÇÕES DA IA")
     print(f"  Gerado em: {rec['gerado_em']}")
-    print("═"*60)
+    print("═" * 60)
     print(f"\n  {d.get('resumo','')}\n")
 
     melhor = d.get("melhor_formato", {})
@@ -621,13 +644,15 @@ def imprimir_recomendacoes():
     temas = d.get("temas_recomendados", [])
     if temas:
         print("  🎯 Temas para priorizar:")
-        for t in temas: print(f"     • {t}")
+        for t in temas:
+            print(f"     • {t}")
         print()
 
     evitar = d.get("temas_evitar", [])
     if evitar:
         print("  ⛔ Temas para evitar:")
-        for t in evitar: print(f"     • {t}")
+        for t in evitar:
+            print(f"     • {t}")
         print()
 
     gancho = d.get("padroes_gancho", {})
@@ -636,16 +661,21 @@ def imprimir_recomendacoes():
         print(f"  ❌ Gancho para evitar  : {gancho.get('evitar','—')}\n")
 
     horario = d.get("melhor_horario", {})
-    dur     = d.get("duracao_ideal", {})
+    dur = d.get("duracao_ideal", {})
     if horario:
-        print(f"  🕐 Poste às: {horario.get('hora',0):02d}h — {horario.get('motivo','')}")
+        print(
+            f"  🕐 Poste às: {horario.get('hora',0):02d}h — {horario.get('motivo','')}"
+        )
     if dur:
-        print(f"  ⏱  Duração ideal: {dur.get('segundos',60)}s — {dur.get('motivo','')}\n")
+        print(
+            f"  ⏱  Duração ideal: {dur.get('segundos',60)}s — {dur.get('motivo','')}\n"
+        )
 
     acoes = d.get("acoes_imediatas", [])
     if acoes:
         print("  📌 Faça esta semana:")
-        for a in acoes: print(f"     • {a}")
+        for a in acoes:
+            print(f"     • {a}")
 
     meta = d.get("meta_proxima_semana", "")
     if meta:
@@ -653,6 +683,7 @@ def imprimir_recomendacoes():
 
 
 # ── INTEGRAÇÃO COM GERADOR ────────────────────────────────
+
 
 def obter_config_otimizada() -> dict:
     """
@@ -700,22 +731,40 @@ def obter_config_otimizada() -> dict:
 
 # ── CLI ───────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Análise de performance — YouTube Shorts + IA"
     )
-    parser.add_argument("--coletar",       action="store_true",
-                        help="Coletar métricas do YouTube Analytics")
-    parser.add_argument("--analisar",      action="store_true",
-                        help="Analisar métricas com IA e gerar recomendações")
-    parser.add_argument("--relatorio",     action="store_true",
-                        help="Relatório completo de performance")
-    parser.add_argument("--top",           type=int, default=10, metavar="N",
-                        help="Top N vídeos por views (padrão: 10)")
-    parser.add_argument("--recomendacoes", action="store_true",
-                        help="Mostrar recomendações da última análise")
-    parser.add_argument("--dias",          type=int, default=28,
-                        help="Dias de histórico para coletar (padrão: 28)")
+    parser.add_argument(
+        "--coletar", action="store_true", help="Coletar métricas do YouTube Analytics"
+    )
+    parser.add_argument(
+        "--analisar",
+        action="store_true",
+        help="Analisar métricas com IA e gerar recomendações",
+    )
+    parser.add_argument(
+        "--relatorio", action="store_true", help="Relatório completo de performance"
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Top N vídeos por views (padrão: 10)",
+    )
+    parser.add_argument(
+        "--recomendacoes",
+        action="store_true",
+        help="Mostrar recomendações da última análise",
+    )
+    parser.add_argument(
+        "--dias",
+        type=int,
+        default=28,
+        help="Dias de histórico para coletar (padrão: 28)",
+    )
     args = parser.parse_args()
 
     # Tentar promover para o logger estruturado (arquivo + formatação).
@@ -723,6 +772,7 @@ def main():
     # o funcionamento — apenas perde-se a formatação/roteamento extra.
     try:
         from logger_setup import get_logger
+
         get_logger(__name__)
     except Exception as e:
         logger.warning("logger_setup indisponível, usando logger básico: %s", e)
@@ -730,9 +780,11 @@ def main():
     if args.coletar:
         print("\n📊 Coletando métricas do YouTube Analytics...\n")
         resultado = coletar_metricas(dias_atras=args.dias)
-        print(f"\n  Coletados: {resultado['coletados']} | "
-              f"Sem dados: {resultado['sem_dados']} | "
-              f"Erros: {resultado['erros']}")
+        print(
+            f"\n  Coletados: {resultado['coletados']} | "
+            f"Sem dados: {resultado['sem_dados']} | "
+            f"Erros: {resultado['erros']}"
+        )
 
     elif args.analisar:
         print("\n🤖 Analisando performance com IA...\n")
@@ -753,7 +805,7 @@ def main():
 
     else:
         # Padrão: coletar + analisar + relatório
-        print("\n📊 Pipeline completo de análise\n" + "─"*45)
+        print("\n📊 Pipeline completo de análise\n" + "─" * 45)
         print("  1/3 Coletando métricas...")
         coletar_metricas(dias_atras=args.dias)
         print("\n  2/3 Analisando com IA...")

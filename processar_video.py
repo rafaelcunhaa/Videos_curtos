@@ -34,16 +34,23 @@
 =======================================================
 """
 
-import os, sys, json, re, shutil, argparse, subprocess, tempfile
-from pathlib import Path
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
-from typing import Any, Optional
+from pathlib import Path
+
+import banco
+from config import cfg
+from constantes import CORES_ASS
 from logger_setup import get_logger
 from retry import chamar_anthropic
 from telegram import notificar
-import banco
-from config import cfg
-from constantes import CORES_ASS, EXTENSOES_VIDEO_VALIDAS
+
 try:
     import whisper
 except ImportError:
@@ -56,34 +63,40 @@ logger = get_logger(__name__)
 #  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
 
-CHAVE_ANTHROPIC    = cfg.chave_anthropic
-MODELO_CLAUDE      = cfg.modelo_claude
-PASTA_CORTES       = str(cfg.pasta_cortes)
-PASTA_PRONTOS      = str(cfg.pasta_prontos)
-NOME_CANAL         = cfg.nome_canal
-COR_LEGENDA        = cfg.cor_legenda
-TAMANHO_FONT       = cfg.tamanho_font
-QUALIDADE_CRF      = cfg.qualidade_crf
-VELOCIDADE_ENC     = cfg.velocidade_enc
-PITCH_VALOR        = cfg.pitch_valor
-MODELO_WHISPER     = cfg.modelo_whisper
-IDIOMA             = cfg.idioma
+CHAVE_ANTHROPIC = cfg.chave_anthropic
+MODELO_CLAUDE = cfg.modelo_claude
+PASTA_CORTES = str(cfg.pasta_cortes)
+PASTA_PRONTOS = str(cfg.pasta_prontos)
+NOME_CANAL = cfg.nome_canal
+COR_LEGENDA = cfg.cor_legenda
+TAMANHO_FONT = cfg.tamanho_font
+QUALIDADE_CRF = cfg.qualidade_crf
+VELOCIDADE_ENC = cfg.velocidade_enc
+PITCH_VALOR = cfg.pitch_valor
+MODELO_WHISPER = cfg.modelo_whisper
+IDIOMA = cfg.idioma
 DURACAO_GLOBAL_MIN = cfg.duracao_global_min
 DURACAO_GLOBAL_MAX = cfg.duracao_global_max
-GERAR_DESCRICAO    = True
+GERAR_DESCRICAO = True
 # ═══════════════════════════════════════════════════════
 
 # CORES_ASS e EXTENSOES_VALIDAS agora vêm de constantes.py
 
+
 def log(msg: str, nivel: str = "INFO") -> None:
     hora = datetime.now().strftime("%H:%M:%S")
-    p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","IA":"🤖","DB":"🗄️"}
+    p = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→", "IA": "🤖", "DB": "🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
-    if nivel == "ERRO":   logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
+
 
 # ─── VERIFICAÇÃO ─────────────────────────────────────────
+
 
 def verificar_deps() -> None:
     erros = []
@@ -91,14 +104,15 @@ def verificar_deps() -> None:
         erros.append("FFmpeg não instalado → https://ffmpeg.org/download.html")
     if not shutil.which("ffprobe"):
         erros.append("FFprobe não instalado (vem junto com FFmpeg)")
-    for pkg, nome in [("whisper","openai-whisper"),("anthropic","anthropic")]:
+    for pkg, nome in [("whisper", "openai-whisper"), ("anthropic", "anthropic")]:
         try:
             __import__(pkg)
         except ImportError:
             erros.append(f"{nome} não instalado → pip install {nome}")
     if erros:
         print("\n❌ Dependências faltando:\n")
-        for e in erros: print(f"   • {e}")
+        for e in erros:
+            print(f"   • {e}")
         sys.exit(1)
     if not CHAVE_ANTHROPIC:
         print("\n❌ Chave da API Anthropic não configurada.")
@@ -107,30 +121,49 @@ def verificar_deps() -> None:
         sys.exit(1)
     log("Todas as dependências OK")
 
+
 # ─── INFO DO VÍDEO ───────────────────────────────────────
 
+
 def obter_info_video(caminho: Path) -> dict:
-    cmd = ["ffprobe","-v","quiet","-print_format","json",
-           "-show_streams","-show_format", str(caminho)]
-    res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffprobe)
+    cmd = [
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        str(caminho),
+    ]
+    res = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=cfg.timeout_ffprobe,
+    )
     dados = json.loads(res.stdout)
-    info  = {"duracao":0,"largura":0,"altura":0,"fps":30,"tem_audio":False}
-    for s in dados.get("streams",[]):
+    info = {"duracao": 0, "largura": 0, "altura": 0, "fps": 30, "tem_audio": False}
+    for s in dados.get("streams", []):
         if s.get("codec_type") == "video":
-            info["largura"] = int(s.get("width",0))
-            info["altura"]  = int(s.get("height",0))
-            fps_str = s.get("r_frame_rate","30/1")
+            info["largura"] = int(s.get("width", 0))
+            info["altura"] = int(s.get("height", 0))
+            fps_str = s.get("r_frame_rate", "30/1")
             try:
                 n, d = fps_str.split("/")
-                info["fps"] = round(int(n)/int(d), 2)
+                info["fps"] = round(int(n) / int(d), 2)
             except Exception:
                 info["fps"] = 30
         elif s.get("codec_type") == "audio":
             info["tem_audio"] = True
-    info["duracao"] = float(dados.get("format",{}).get("duration",0))
+    info["duracao"] = float(dados.get("format", {}).get("duration", 0))
     return info
 
+
 # ─── ETAPA 1: TRANSCRIÇÃO ────────────────────────────────
+
 
 def transcrever(caminho_video: Path) -> list:
     if not whisper:
@@ -139,9 +172,10 @@ def transcrever(caminho_video: Path) -> list:
     modelo = whisper.load_model(MODELO_WHISPER)
     idioma = None if IDIOMA == "auto" else IDIOMA
     resultado = modelo.transcribe(str(caminho_video), language=idioma, verbose=False)
-    segmentos  = resultado["segments"]
+    segmentos = resultado["segments"]
     log(f"Transcrição: {len(segmentos)} segmentos")
     return segmentos
+
 
 def segmentos_para_texto(segmentos: list) -> str:
     linhas = []
@@ -151,13 +185,17 @@ def segmentos_para_texto(segmentos: list) -> str:
         linhas.append(f"[{ini}-{fim}] {s['text'].strip()}")
     return "\n".join(linhas)
 
+
 # ─── ETAPA 2: IA SELECIONA CORTES ────────────────────────
 
-def ia_selecionar_cortes(transcricao_texto: str, duracao_total: float, titulo: str) -> tuple:
+
+def ia_selecionar_cortes(
+    transcricao_texto: str, duracao_total: float, titulo: str
+) -> tuple:
     log("IA analisando e selecionando cortes...", "IA")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
-    prompt  = f"""Você é especialista em criar conteúdo viral para TikTok e YouTube Shorts com foco em conteúdo religioso e espiritual.
+    prompt = f"""Você é especialista em criar conteúdo viral para TikTok e YouTube Shorts com foco em conteúdo religioso e espiritual.
 
 Analise a transcrição do vídeo "{titulo}" (duração total: {duracao_total:.0f}s) e selecione o MÁXIMO de cortes possível para TikTok e Shorts.
 
@@ -180,19 +218,20 @@ Responda SOMENTE com JSON puro, sem markdown, sem explicação:
 
     resposta = chamar_anthropic(
         cliente.messages.create,
-        model=MODELO_CLAUDE, max_tokens=4096,
-        messages=[{"role":"user","content":prompt}]
+        model=MODELO_CLAUDE,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
     )
 
-    tokens_in  = resposta.usage.input_tokens
+    tokens_in = resposta.usage.input_tokens
     tokens_out = resposta.usage.output_tokens
-    custo_usd  = (tokens_in * 3 + tokens_out * 15) / 1_000_000
+    custo_usd = (tokens_in * 3 + tokens_out * 15) / 1_000_000
 
-    texto = re.sub(r"```json|```","", resposta.content[0].text.strip()).strip()
+    texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     try:
         cortes = json.loads(texto)
     except json.JSONDecodeError:
-        match = re.search(r'\[.*\]', texto, re.DOTALL)
+        match = re.search(r"\[.*\]", texto, re.DOTALL)
         if match:
             cortes = json.loads(match.group())
         else:
@@ -201,9 +240,10 @@ Responda SOMENTE com JSON puro, sem markdown, sem explicação:
     log(f"IA selecionou {len(cortes)} cortes (custo: ${custo_usd:.4f})", "IA")
     return cortes, custo_usd
 
+
 def ia_gerar_descricao(corte: dict, titulo_video: str):
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
-    prompt  = f"""Crie conteúdo de publicação para um TikTok e YouTube Short religioso.
+    prompt = f"""Crie conteúdo de publicação para um TikTok e YouTube Short religioso.
 
 Vídeo: "{titulo_video}"
 Título do corte: "{corte.get('titulo','')}"
@@ -215,20 +255,23 @@ Responda SOMENTE com JSON puro, sem markdown:
 
     resposta = chamar_anthropic(
         cliente.messages.create,
-        model=MODELO_CLAUDE, max_tokens=500,
-        messages=[{"role":"user","content":prompt}]
+        model=MODELO_CLAUDE,
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}],
     )
-    tokens_in  = resposta.usage.input_tokens
+    tokens_in = resposta.usage.input_tokens
     tokens_out = resposta.usage.output_tokens
-    custo_usd  = (tokens_in * 3 + tokens_out * 15) / 1_000_000
+    custo_usd = (tokens_in * 3 + tokens_out * 15) / 1_000_000
 
-    texto = re.sub(r"```json|```","", resposta.content[0].text.strip()).strip()
+    texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     try:
         return json.loads(texto), custo_usd
     except Exception:
         return None, custo_usd
 
+
 # ─── ETAPA 3: CORTAR VÍDEO ───────────────────────────────
+
 
 def cortar_video(caminho_video: Path, cortes: list, pasta_saida: Path) -> list:
     pasta_saida = Path(pasta_saida)
@@ -237,21 +280,45 @@ def cortar_video(caminho_video: Path, cortes: list, pasta_saida: Path) -> list:
 
     for i, corte in enumerate(cortes, 1):
         inicio = float(corte["inicio"])
-        fim    = min(float(corte["fim"]), inicio + DURACAO_GLOBAL_MAX)
-        tipo   = corte.get("tipo","denso")
+        fim = min(float(corte["fim"]), inicio + DURACAO_GLOBAL_MAX)
+        tipo = corte.get("tipo", "denso")
 
-        nome_safe = re.sub(r'[^\w\s-]','', corte.get("titulo", f"corte_{i}"))[:35].strip()
-        nome_safe = re.sub(r'\s+','_', nome_safe)
-        nome_arq  = f"{i:02d}_{tipo}_{nome_safe}.mp4"
-        dest      = pasta_saida / nome_arq
+        nome_safe = re.sub(r"[^\w\s-]", "", corte.get("titulo", f"corte_{i}"))[
+            :35
+        ].strip()
+        nome_safe = re.sub(r"\s+", "_", nome_safe)
+        nome_arq = f"{i:02d}_{tipo}_{nome_safe}.mp4"
+        dest = pasta_saida / nome_arq
 
-        log(f"Cortando [{i}/{len(cortes)}]: {inicio:.1f}s → {fim:.1f}s ({fim-inicio:.0f}s | {tipo})", "PROC")
+        log(
+            f"Cortando [{i}/{len(cortes)}]: {inicio:.1f}s → {fim:.1f}s ({fim-inicio:.0f}s | {tipo})",
+            "PROC",
+        )
 
-        cmd = ["ffmpeg","-y","-ss",str(inicio),"-to",str(fim),
-               "-i",str(caminho_video),"-c","copy",
-               "-avoid_negative_ts","make_zero", str(dest)]
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(inicio),
+            "-to",
+            str(fim),
+            "-i",
+            str(caminho_video),
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "make_zero",
+            str(dest),
+        ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_corte)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=cfg.timeout_ffmpeg_corte,
+        )
         if res.returncode == 0:
             log(f"  ✓ {nome_arq}")
             arquivos.append({"caminho": dest, "corte": corte})
@@ -260,10 +327,14 @@ def cortar_video(caminho_video: Path, cortes: list, pasta_saida: Path) -> list:
 
     return arquivos
 
+
 # ─── ETAPA 4: GERAR LEGENDA ASS ──────────────────────────
 
-def gerar_ass(segmentos: list, inicio_corte: float, fim_corte: float, caminho_saida: Path) -> None:
-    cor    = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
+
+def gerar_ass(
+    segmentos: list, inicio_corte: float, fim_corte: float, caminho_saida: Path
+) -> None:
+    cor = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -277,8 +348,11 @@ Style: Default,Arial,{TAMANHO_FONT},{cor},&H000000FF,&H00000000,&H80000000,-1,0,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
     def t2ass(s: float) -> str:
-        h=int(s//3600); m=int((s%3600)//60); sc=s%60
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sc = s % 60
         return f"{h}:{m:02d}:{sc:05.2f}"
 
     linhas = [header]
@@ -287,42 +361,48 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         t_ini = max(0.0, seg["start"] - inicio_corte)
         t_fim = min(fim_corte - inicio_corte, seg["end"] - inicio_corte)
-        texto = seg["text"].strip().replace("\n"," ")
+        texto = seg["text"].strip().replace("\n", " ")
         if len(texto) > 38:
-            meio = len(texto)//2
-            esp  = texto.rfind(" ", 0, meio)
+            meio = len(texto) // 2
+            esp = texto.rfind(" ", 0, meio)
             if esp > 0:
-                texto = texto[:esp] + r"\N" + texto[esp+1:]
-        linhas.append(f"Dialogue: 0,{t2ass(t_ini)},{t2ass(t_fim)},Default,,0,0,0,,{texto}")
+                texto = texto[:esp] + r"\N" + texto[esp + 1 :]
+        linhas.append(
+            f"Dialogue: 0,{t2ass(t_ini)},{t2ass(t_fim)},Default,,0,0,0,,{texto}"
+        )
 
-    with open(caminho_saida,"w",encoding="utf-8") as f:
+    with open(caminho_saida, "w", encoding="utf-8") as f:
         f.write("\n".join(linhas))
+
 
 # ─── ETAPA 5: PROCESSAR PARA TIKTOK + SHORTS ─────────────
 
-def processar_corte(arquivo_corte: dict, segmentos: list, pasta_saida: Path, titulo_video: str):
+
+def processar_corte(
+    arquivo_corte: dict, segmentos: list, pasta_saida: Path, titulo_video: str
+):
     caminho_entrada = arquivo_corte["caminho"]
-    corte           = arquivo_corte["corte"]
-    inicio_corte    = float(corte["inicio"])
-    fim_corte       = float(corte["fim"])
+    corte = arquivo_corte["corte"]
+    inicio_corte = float(corte["inicio"])
+    fim_corte = float(corte["fim"])
 
     pasta_saida = Path(pasta_saida)
     pasta_saida.mkdir(parents=True, exist_ok=True)
 
-    ts          = datetime.now().strftime("%H%M%S")
-    nome_saida  = f"pronto_{caminho_entrada.stem}_{ts}.mp4"
-    txt_saida   = pasta_saida / f"pronto_{caminho_entrada.stem}_{ts}.txt"
+    ts = datetime.now().strftime("%H%M%S")
+    nome_saida = f"pronto_{caminho_entrada.stem}_{ts}.mp4"
+    txt_saida = pasta_saida / f"pronto_{caminho_entrada.stem}_{ts}.txt"
     caminho_out = pasta_saida / nome_saida
 
     log(f"Processando para TikTok + Shorts: {caminho_entrada.name}", "PROC")
 
     with tempfile.TemporaryDirectory() as tmp:
-        tmp      = Path(tmp)
+        tmp = Path(tmp)
         ass_path = tmp / "legendas.ass"
         gerar_ass(segmentos, inicio_corte, fim_corte, ass_path)
 
-        ass_esc  = str(ass_path).replace("\\","/").replace(":","\\:")
-        nome_esc = NOME_CANAL.replace("@","\\@")
+        ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:")
+        nome_esc = NOME_CANAL.replace("@", "\\@")
 
         # 9:16 vertical | legendas queimadas | nome do canal
         vf = (
@@ -337,39 +417,70 @@ def processar_corte(arquivo_corte: dict, segmentos: list, pasta_saida: Path, tit
         af = f"atempo={PITCH_VALOR},asetrate=44100*{PITCH_VALOR},aresample=44100"
 
         cmd = [
-            "ffmpeg","-y","-i",str(caminho_entrada),
-            "-vf",vf,"-af",af,
-            "-c:v","libx264",
-            "-crf",str(QUALIDADE_CRF),
-            "-preset",VELOCIDADE_ENC,
-            "-profile:v","high","-level","4.1",  # máxima compatibilidade
-            "-pix_fmt","yuv420p",
-            "-r","30",                            # 30fps padrão TikTok e Shorts
-            "-movflags","+faststart",
-            "-c:a","aac","-b:a","192k","-ar","44100",
-            "-map_metadata","-1",                 # apaga todos os metadados
-            "-metadata","title=",
-            "-metadata","comment=",
-            "-metadata","encoder=",
-            str(caminho_out)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(caminho_entrada),
+            "-vf",
+            vf,
+            "-af",
+            af,
+            "-c:v",
+            "libx264",
+            "-crf",
+            str(QUALIDADE_CRF),
+            "-preset",
+            VELOCIDADE_ENC,
+            "-profile:v",
+            "high",
+            "-level",
+            "4.1",  # máxima compatibilidade
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            "30",  # 30fps padrão TikTok e Shorts
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ar",
+            "44100",
+            "-map_metadata",
+            "-1",  # apaga todos os metadados
+            "-metadata",
+            "title=",
+            "-metadata",
+            "comment=",
+            "-metadata",
+            "encoder=",
+            str(caminho_out),
         ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_encode)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=cfg.timeout_ffmpeg_encode,
+        )
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-200:]}", "ERRO")
             return None, None, 0.0
 
-        tam = caminho_out.stat().st_size / (1024*1024)
+        tam = caminho_out.stat().st_size / (1024 * 1024)
         log(f"✅ Pronto: {nome_saida} ({tam:.1f} MB)")
 
     # Gerar descrição com IA
-    desc_info  = None
+    desc_info = None
     custo_desc = 0.0
     if GERAR_DESCRICAO:
         log("IA gerando título + descrição + hashtags...", "IA")
         desc_info, custo_desc = ia_gerar_descricao(corte, titulo_video)
         if desc_info:
-            hashtags_str = " ".join(desc_info.get("hashtags",[]))
+            hashtags_str = " ".join(desc_info.get("hashtags", []))
             conteudo = (
                 f"=== YOUTUBE SHORTS ===\n"
                 f"TÍTULO:\n{desc_info.get('titulo_yt', corte.get('titulo',''))}\n\n"
@@ -388,7 +499,9 @@ def processar_corte(arquivo_corte: dict, segmentos: list, pasta_saida: Path, tit
 
     return caminho_out, (txt_saida if desc_info else None), custo_desc, desc_info
 
+
 # ─── PIPELINE PRINCIPAL ───────────────────────────────────
+
 
 def pipeline(caminho_video: Path, forcar: bool = False) -> list:
     caminho_video = Path(caminho_video)
@@ -406,11 +519,11 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
     banco.inicializar()
     usar_banco = True
 
-    titulo = caminho_video.stem.replace("_"," ").replace("-"," ")
+    titulo = caminho_video.stem.replace("_", " ").replace("-", " ")
 
-    print("\n" + "═"*58)
+    print("\n" + "═" * 58)
     print("  PROCESSADOR DE VÍDEO → TIKTOK + YOUTUBE SHORTS")
-    print("═"*58 + "\n")
+    print("═" * 58 + "\n")
     print(f"  Arquivo : {caminho_video.name}")
 
     verificar_deps()
@@ -422,18 +535,20 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
     video_id = None
     if usar_banco and not forcar:
         # Usa o caminho como identificador único para vídeos locais
-        vid_key  = f"local_{caminho_video.stem}"
+        vid_key = f"local_{caminho_video.stem}"
         registro = banco.video_ja_processado(vid_key)
         if registro:
-            print(f"\n⚠️  Este vídeo já foi processado anteriormente!")
+            print("\n⚠️  Este vídeo já foi processado anteriormente!")
             print(f"   Cortes : {registro['num_cortes']}")
             print(f"   Data   : {registro['criado_em']}")
-            print(f"\n   Use --forcar para reprocessar mesmo assim.\n")
+            print("\n   Use --forcar para reprocessar mesmo assim.\n")
             cortes_existentes = banco.listar_cortes(video_id=registro["id"])
             if cortes_existentes:
                 print("   Cortes existentes:")
                 for c in cortes_existentes:
-                    print(f"     [{c['numero']:02d}] {c['tipo']:6} | {c['duracao_s']:.0f}s | {c['status'].upper()} | {c['titulo']}")
+                    print(
+                        f"     [{c['numero']:02d}] {c['tipo']:6} | {c['duracao_s']:.0f}s | {c['status'].upper()} | {c['titulo']}"
+                    )
             print()
             return []
 
@@ -443,15 +558,17 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
     print(f"  Resolução: {info['largura']}x{info['altura']} | {info['fps']}fps\n")
 
     if usar_banco:
-        vid_key  = f"local_{caminho_video.stem}"
+        vid_key = f"local_{caminho_video.stem}"
         video_id = banco.registrar_video(
-            url=vid_key, titulo=titulo,
-            duracao_s=info["duracao"], caminho_arquivo=str(caminho_video)
+            url=vid_key,
+            titulo=titulo,
+            duracao_s=info["duracao"],
+            caminho_arquivo=str(caminho_video),
         )
         log(f"Vídeo registrado no banco (ID: {video_id})", "DB")
 
     # ── 1. Transcrição ───────────────────────────────────
-    print("\n🎙  ETAPA 1: Transcrição com Whisper\n" + "─"*45)
+    print("\n🎙  ETAPA 1: Transcrição com Whisper\n" + "─" * 45)
     segmentos = transcrever(caminho_video)
     transcricao_texto = segmentos_para_texto(segmentos)
 
@@ -459,8 +576,10 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
         banco.marcar_transcrito(video_id)
 
     # ── 2. IA seleciona cortes ───────────────────────────
-    print("\n🤖 ETAPA 2: IA selecionando melhores momentos\n" + "─"*45)
-    cortes, custo_cortes = ia_selecionar_cortes(transcricao_texto, info["duracao"], titulo)
+    print("\n🤖 ETAPA 2: IA selecionando melhores momentos\n" + "─" * 45)
+    cortes, custo_cortes = ia_selecionar_cortes(
+        transcricao_texto, info["duracao"], titulo
+    )
 
     if usar_banco and video_id:
         banco.atualizar_custo(video_id, custo_cortes)
@@ -486,12 +605,12 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
         print(f"         Motivo : {c.get('motivo','—')}\n")
 
     # ── 3. Cortar ────────────────────────────────────────
-    print(f"\n✂️  ETAPA 3: Cortando {len(cortes_validos)} trechos\n" + "─"*45)
+    print(f"\n✂️  ETAPA 3: Cortando {len(cortes_validos)} trechos\n" + "─" * 45)
     arquivos_cortados = cortar_video(caminho_video, cortes_validos, PASTA_CORTES)
 
     # ── 4. Processar ─────────────────────────────────────
-    print(f"\n🎬 ETAPA 4: Processando para TikTok + Shorts\n" + "─"*45)
-    prontos          = []
+    print("\n🎬 ETAPA 4: Processando para TikTok + Shorts\n" + "─" * 45)
+    prontos = []
     custo_desc_total = 0.0
 
     for i, arq in enumerate(arquivos_cortados, 1):
@@ -504,11 +623,12 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
             prontos.append((video_out, txt_out))
             if usar_banco and video_id:
                 corte_id = banco.registrar_corte(
-                    video_id=video_id, numero=i,
+                    video_id=video_id,
+                    numero=i,
                     corte_info=arq["corte"],
                     caminho_video=video_out,
                     caminho_txt=txt_out,
-                    desc_info=desc_info_atual
+                    desc_info=desc_info_atual,
                 )
                 log(f"Corte {i} registrado no banco (ID: {corte_id})", "DB")
 
@@ -518,18 +638,20 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
         log(f"Custo total API: ${custo_total:.4f} (~R${custo_total*5.6:.2f})", "DB")
 
     # ── Resumo ───────────────────────────────────────────
-    print("\n" + "═"*58)
+    print("\n" + "═" * 58)
     print(f"  ✅ CONCLUÍDO: {len(prontos)}/{len(cortes_validos)} vídeos prontos")
     print(f"  📁 Saída: {Path(PASTA_PRONTOS).resolve()}")
     if usar_banco:
         s = banco.stats()
-        print(f"  🗄️  Banco: {s['total_videos']} vídeos | {s['total_cortes']} cortes | {s['postados']} postados")
-    print("═"*58 + "\n")
+        print(
+            f"  🗄️  Banco: {s['total_videos']} vídeos | {s['total_cortes']} cortes | {s['postados']} postados"
+        )
+    print("═" * 58 + "\n")
     notificar.pipeline_concluido(
         origem="Processar Vídeo → Shorts",
         total=len(cortes_validos),
         sucesso=len(prontos),
-        custo_usd=custo_cortes + custo_desc_total
+        custo_usd=custo_cortes + custo_desc_total,
     )
 
     if prontos:
@@ -542,11 +664,13 @@ def pipeline(caminho_video: Path, forcar: bool = False) -> list:
 
     return prontos
 
+
 # ─── MODO PASTA ───────────────────────────────────────────
 
+
 def processar_pasta(pasta: Path, forcar: bool = False) -> None:
-    pasta    = Path(pasta)
-    videos   = [f for f in pasta.iterdir() if f.suffix.lower() in EXTENSOES_VALIDAS]
+    pasta = Path(pasta)
+    videos = [f for f in pasta.iterdir() if f.suffix.lower() in EXTENSOES_VALIDAS]
 
     if not videos:
         log(f"Nenhum vídeo encontrado em '{pasta}'", "AVISO")
@@ -554,14 +678,16 @@ def processar_pasta(pasta: Path, forcar: bool = False) -> None:
         return
 
     log(f"Encontrados {len(videos)} vídeo(s) em '{pasta}'")
-    print("─"*50)
+    print("─" * 50)
 
     for i, video in enumerate(videos, 1):
         print(f"\n[{i}/{len(videos)}] {video.name}\n")
         pipeline(video, forcar=forcar)
-        print("─"*50)
+        print("─" * 50)
+
 
 # ─── ENTRADA ──────────────────────────────────────────────
+
 
 def main():
     global CHAVE_ANTHROPIC, MODELO_WHISPER
@@ -570,13 +696,17 @@ def main():
         description="Vídeo local → TikTok + YouTube Shorts com IA"
     )
     parser.add_argument("--arquivo", help="Caminho do vídeo a processar")
-    parser.add_argument("--pasta",   help="Pasta com vídeos para processar todos")
-    parser.add_argument("--chave",   help="Chave API Anthropic")
-    parser.add_argument("--modelo",  default=MODELO_WHISPER,
-                        choices=["tiny","base","small","medium","large"],
-                        help="Modelo Whisper para transcrição")
-    parser.add_argument("--forcar",  action="store_true",
-                        help="Reprocessa mesmo se já estiver no banco")
+    parser.add_argument("--pasta", help="Pasta com vídeos para processar todos")
+    parser.add_argument("--chave", help="Chave API Anthropic")
+    parser.add_argument(
+        "--modelo",
+        default=MODELO_WHISPER,
+        choices=["tiny", "base", "small", "medium", "large"],
+        help="Modelo Whisper para transcrição",
+    )
+    parser.add_argument(
+        "--forcar", action="store_true", help="Reprocessa mesmo se já estiver no banco"
+    )
     args = parser.parse_args()
 
     if args.chave:
@@ -593,14 +723,15 @@ def main():
         pipeline(args.arquivo, forcar=args.forcar)
 
     else:
-        print("\n" + "═"*58)
+        print("\n" + "═" * 58)
         print("  PROCESSADOR DE VÍDEO → TIKTOK + YOUTUBE SHORTS")
-        print("═"*58)
+        print("═" * 58)
         arquivo = input("\n📁 Caminho do vídeo: ").strip().strip('"').strip("'")
         if not arquivo:
             print("Nenhum arquivo informado. Saindo.")
             sys.exit(1)
         pipeline(arquivo, forcar=args.forcar)
+
 
 if __name__ == "__main__":
     main()

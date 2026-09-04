@@ -35,17 +35,18 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
+
 from constantes import TAXA_CAMBIO_USD_BRL, TIMEOUT_TELEGRAM_API
 
 logger = logging.getLogger(__name__)
 
 # ── Emojis por tipo de notificação ───────────────────────
 _EMOJI = {
-    "sucesso":  "✅",
-    "erro":     "❌",
-    "aviso":    "⚠️",
-    "info":     "ℹ️",
-    "resumo":   "📊",
+    "sucesso": "✅",
+    "erro": "❌",
+    "aviso": "⚠️",
+    "info": "ℹ️",
+    "resumo": "📊",
     "pipeline": "🎬",
     "agendado": "📅",
     "dinheiro": "💰",
@@ -61,9 +62,9 @@ class _Notificador:
     """
 
     def __init__(self):
-        self._token:   str = ""
+        self._token: str = ""
         self._chat_id: str = ""
-        self._ativo:   bool = False
+        self._ativo: bool = False
 
     def _carregar_config(self) -> bool:
         """Carrega configuração do config.py. Retorna True se configurado."""
@@ -71,10 +72,11 @@ class _Notificador:
             return True
         try:
             from config import cfg
+
             if cfg.telegram_token and cfg.telegram_chat_id:
-                self._token   = cfg.telegram_token
+                self._token = cfg.telegram_token
                 self._chat_id = cfg.telegram_chat_id
-                self._ativo   = True
+                self._ativo = True
                 return True
         except Exception:
             # Falha ao importar config ou ler atributos: cai no 'return False'
@@ -92,11 +94,11 @@ class _Notificador:
         if not self._carregar_config():
             return False  # não configurado — silêncio total
 
-        url  = TELEGRAM_API.format(token=self._token)
+        url = TELEGRAM_API.format(token=self._token)
         body = {
-            "chat_id":              self._chat_id,
-            "text":                 texto,
-            "parse_mode":           "HTML",
+            "chat_id": self._chat_id,
+            "text": texto,
+            "parse_mode": "HTML",
             "disable_notification": silencioso,
         }
 
@@ -108,7 +110,8 @@ class _Notificador:
                 else:
                     logger.warning(
                         "Telegram: falha ao enviar (status %d): %s",
-                        res.status_code, res.text[:200]
+                        res.status_code,
+                        res.text[:200],
                     )
         except httpx.TimeoutException:
             logger.warning("Telegram: timeout ao enviar notificação")
@@ -119,8 +122,9 @@ class _Notificador:
 
     # ── Notificações específicas ──────────────────────────
 
-    def short_postado(self, titulo: str, url_short: str,
-                       formato: str = "", duracao_s: float = 0) -> None:
+    def short_postado(
+        self, titulo: str, url_short: str, formato: str = "", duracao_s: float = 0
+    ) -> None:
         """Avisa quando um Short for postado com sucesso."""
         dur = f" • {duracao_s:.0f}s" if duracao_s else ""
         fmt = f" • {formato.upper()}" if formato else ""
@@ -134,8 +138,9 @@ class _Notificador:
         self._enviar(texto)
         logger.info("Telegram: notificação de postagem enviada")
 
-    def erro(self, origem: str, mensagem: str,
-             excecao: Optional[Exception] = None) -> None:
+    def erro(
+        self, origem: str, mensagem: str, excecao: Optional[Exception] = None
+    ) -> None:
         """Avisa quando qualquer erro crítico ocorrer."""
         detalhe = ""
         if excecao:
@@ -162,8 +167,9 @@ class _Notificador:
         )
         self._enviar(texto)
 
-    def pipeline_concluido(self, origem: str, total: int,
-                            sucesso: int, custo_usd: float = 0.0) -> None:
+    def pipeline_concluido(
+        self, origem: str, total: int, sucesso: int, custo_usd: float = 0.0
+    ) -> None:
         """Avisa quando um pipeline terminar."""
         icone = _EMOJI["sucesso"] if sucesso == total else _EMOJI["aviso"]
         custo_brl = custo_usd * TAXA_CAMBIO_USD_BRL
@@ -175,8 +181,9 @@ class _Notificador:
         )
         self._enviar(texto)
 
-    def resumo_diario(self, gerados: int, postados: int,
-                       agendados: int, custo_usd: float) -> None:
+    def resumo_diario(
+        self, gerados: int, postados: int, agendados: int, custo_usd: float
+    ) -> None:
         """Resumo diário — enviado silenciosamente para não acordar."""
         custo_brl = custo_usd * TAXA_CAMBIO_USD_BRL
         texto = (
@@ -189,8 +196,7 @@ class _Notificador:
         )
         self._enviar(texto, silencioso=True)
 
-    def saldo_baixo(self, custo_total_usd: float,
-                    limite_usd: float = 5.0) -> None:
+    def saldo_baixo(self, custo_total_usd: float, limite_usd: float = 5.0) -> None:
         """Avisa quando o gasto acumulado ultrapassar um limite."""
         custo_brl = custo_total_usd * TAXA_CAMBIO_USD_BRL
         texto = (
@@ -238,9 +244,12 @@ notificar = _Notificador()
 # ── CLI para testar ───────────────────────────────────────
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Notificações Telegram")
-    parser.add_argument("--testar",  action="store_true", help="Envia mensagem de teste")
-    parser.add_argument("--setup",   action="store_true", help="Mostra instruções de configuração")
+    parser.add_argument("--testar", action="store_true", help="Envia mensagem de teste")
+    parser.add_argument(
+        "--setup", action="store_true", help="Mostra instruções de configuração"
+    )
     args = parser.parse_args()
 
     if args.testar:

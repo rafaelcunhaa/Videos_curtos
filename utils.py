@@ -18,51 +18,80 @@ logger = logging.getLogger(__name__)
 # ─── LOGGING ─────────────────────────────────────────────
 
 NIVEL_ICONS = {
-    "INFO":  "✓",
-    "ERRO":  "✗",
+    "INFO": "✓",
+    "ERRO": "✗",
     "AVISO": "⚠",
-    "PROC":  "→",
-    "IA":    "🤖",
-    "DB":    "🗄️",
-    "YT":    "📺",
+    "PROC": "→",
+    "IA": "🤖",
+    "DB": "🗄️",
+    "YT": "📺",
 }
+
 
 def log(msg: str, nivel: str = "INFO") -> None:
     hora = datetime.now().strftime("%H:%M:%S")
     icone = NIVEL_ICONS.get(nivel, "·")
     print(f"[{hora}] {icone} {msg}")
 
+
 # ─── FFPROBE ─────────────────────────────────────────────
+
 
 def obter_duracao(caminho: Path) -> float:
     """Retorna duração em segundos via ffprobe. Retorna 0.0 em falha."""
     try:
         cmd = [
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "json", str(caminho)
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(caminho),
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         if res.returncode == 0:
             return float(json.loads(res.stdout)["format"]["duration"])
     except Exception as e:
         logger.warning("Falha ao obter duração de %s: %s", caminho, e)
     return 0.0
 
+
 def obter_info_video(caminho: Path) -> dict:
     """Retorna dict com largura, altura, fps, duracao, tem_audio."""
     info = {"duracao": 0.0, "largura": 0, "altura": 0, "fps": 30.0, "tem_audio": False}
     try:
         cmd = [
-            "ffprobe", "-v", "quiet", "-print_format", "json",
-            "-show_streams", "-show_format", str(caminho)
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_streams",
+            "-show_format",
+            str(caminho),
         ]
-        res  = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         dados = json.loads(res.stdout)
         for s in dados.get("streams", []):
             if s.get("codec_type") == "video":
-                info["largura"] = int(s.get("width",  0))
-                info["altura"]  = int(s.get("height", 0))
+                info["largura"] = int(s.get("width", 0))
+                info["altura"] = int(s.get("height", 0))
                 fps_str = s.get("r_frame_rate", "30/1")
                 try:
                     n, d = fps_str.split("/")
@@ -79,31 +108,39 @@ def obter_info_video(caminho: Path) -> dict:
         logger.warning("Falha ao inspecionar vídeo %s: %s", caminho, e)
     return info
 
+
 # ─── LEGENDA ASS ─────────────────────────────────────────
 
 CORES_ASS = {
-    "white":  "&H00FFFFFF",
+    "white": "&H00FFFFFF",
     "yellow": "&H0000FFFF",
-    "cyan":   "&H00FFFF00",
+    "cyan": "&H00FFFF00",
 }
+
 
 def t2ass(s: float) -> str:
     """Converte segundos float para formato de tempo ASS (H:MM:SS.cc)."""
-    s    = max(0.0, s)
-    h    = int(s // 3600)
-    m    = int((s % 3600) // 60)
-    sc   = s % 60
+    s = max(0.0, s)
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sc = s % 60
     return f"{h}:{m:02d}:{sc:05.2f}"
 
-def gerar_ass_de_segmentos(segmentos: list, inicio_corte: float,
-                            fim_corte: float, caminho_saida: Path,
-                            cor: str = "white", tamanho_font: int = 20) -> None:
+
+def gerar_ass_de_segmentos(
+    segmentos: list,
+    inicio_corte: float,
+    fim_corte: float,
+    caminho_saida: Path,
+    cor: str = "white",
+    tamanho_font: int = 20,
+) -> None:
     """
     Gera arquivo ASS com legendas para um intervalo do vídeo.
     Reutilizado por youtube_para_shorts.py e processar_video.py.
     """
     cor_ass = CORES_ASS.get(cor, "&H00FFFFFF")
-    header  = (
+    header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         "PlayResX: 1080\n"
@@ -129,23 +166,28 @@ def gerar_ass_de_segmentos(segmentos: list, inicio_corte: float,
         # Quebrar linhas longas em 2
         if len(texto) > 38:
             meio = len(texto) // 2
-            esp  = texto.rfind(" ", 0, meio)
+            esp = texto.rfind(" ", 0, meio)
             if esp > 0:
-                texto = texto[:esp] + r"\N" + texto[esp + 1:]
+                texto = texto[:esp] + r"\N" + texto[esp + 1 :]
         linhas.append(
             f"Dialogue: 0,{t2ass(t_ini)},{t2ass(t_fim)},Default,,0,0,0,,{texto}"
         )
     caminho_saida.write_text("\n".join(linhas), encoding="utf-8")
 
-def gerar_ass_de_roteiro(roteiro: str, duracao_audio: float,
-                          caminho_saida: Path, cor: str = "white",
-                          tamanho_font: int = 22) -> None:
+
+def gerar_ass_de_roteiro(
+    roteiro: str,
+    duracao_audio: float,
+    caminho_saida: Path,
+    cor: str = "white",
+    tamanho_font: int = 22,
+) -> None:
     """
     Gera ASS estimando timestamps por frase (para vídeos gerados).
     Usado pelo gerador_conteudo.py.
     """
     cor_ass = CORES_ASS.get(cor, "&H00FFFFFF")
-    header  = (
+    header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         "PlayResX: 1080\n"
@@ -161,19 +203,21 @@ def gerar_ass_de_roteiro(roteiro: str, duracao_audio: float,
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
-    frases = [f.strip() for f in re.split(r'(?<=[.!?,;])\s+', roteiro.strip()) if f.strip()]
-    palavras_total  = sum(len(f.split()) for f in frases) or 1
+    frases = [
+        f.strip() for f in re.split(r"(?<=[.!?,;])\s+", roteiro.strip()) if f.strip()
+    ]
+    palavras_total = sum(len(f.split()) for f in frases) or 1
     seg_por_palavra = duracao_audio / palavras_total
 
-    linhas  = [header]
+    linhas = [header]
     t_atual = 0.2
     for frase in frases:
         dur = len(frase.split()) * seg_por_palavra
         if len(frase) > 45:
             meio = len(frase) // 2
-            esp  = frase.rfind(" ", 0, meio)
+            esp = frase.rfind(" ", 0, meio)
             if esp > 0:
-                frase = frase[:esp] + r"\N" + frase[esp + 1:]
+                frase = frase[:esp] + r"\N" + frase[esp + 1 :]
         t_fim = min(t_atual + dur, duracao_audio - 0.1)
         linhas.append(
             f"Dialogue: 0,{t2ass(t_atual)},{t2ass(t_fim)},Default,,0,0,0,,{frase}"
@@ -181,17 +225,21 @@ def gerar_ass_de_roteiro(roteiro: str, duracao_audio: float,
         t_atual = t_fim + 0.05
     caminho_saida.write_text("\n".join(linhas), encoding="utf-8")
 
+
 # ─── NOME DE ARQUIVO SEGURO ──────────────────────────────
+
 
 def nome_seguro(texto: str, max_len: int = 35) -> str:
     """Remove caracteres inválidos para nome de arquivo."""
     if not texto:
         return ""
-    s = re.sub(r'[^\w\s.-]', '', texto)  # permite letras, números, _, espaço, ., -
-    s = re.sub(r'\s+', '_', s.strip())
+    s = re.sub(r"[^\w\s.-]", "", texto)  # permite letras, números, _, espaço, ., -
+    s = re.sub(r"\s+", "_", s.strip())
     return s[:max_len]
 
+
 # ─── PARSER JSON ROBUSTO ─────────────────────────────────
+
 
 def parse_json_robusto(texto: str) -> Any:
     """
@@ -203,34 +251,49 @@ def parse_json_robusto(texto: str) -> Any:
         return json.loads(texto)
     except json.JSONDecodeError:
         # Tentar extrair o primeiro array ou objeto JSON do texto
-        for padrao in (r'\[.*\]', r'\{.*\}'):
+        for padrao in (r"\[.*\]", r"\{.*\}"):
             match = re.search(padrao, texto, re.DOTALL)
             if match:
                 try:
                     return json.loads(match.group())
                 except json.JSONDecodeError:
                     continue
-        raise ValueError(f"Não foi possível parsear JSON da resposta da IA:\n{texto[:300]}")
+        raise ValueError(
+            f"Não foi possível parsear JSON da resposta da IA:\n{texto[:300]}"
+        )
+
 
 # ─── CUSTO API ───────────────────────────────────────────
+
 
 def calcular_custo_claude(usage: Any) -> float:
     """Calcula custo aproximado em USD para claude-sonnet-4."""
     # $3/M tokens input, $15/M tokens output
     return (usage.input_tokens * 3 + usage.output_tokens * 15) / 1_000_000
 
+
 # ─── SALVAR TXT DE PUBLICAÇÃO ────────────────────────────
 
-def salvar_txt_publicacao(caminho: Path, dados: dict,
-                           corte_info: dict | None = None) -> None:
+
+def salvar_txt_publicacao(
+    caminho: Path, dados: dict, corte_info: dict | None = None
+) -> None:
     """Salva arquivo .txt com título, descrição e hashtags para publicação."""
     hashtags_str = " ".join(dados.get("hashtags", []))
-    titulo_yt    = dados.get("titulo_yt",     corte_info.get("titulo", "") if corte_info else "")
-    titulo_tt    = dados.get("titulo_tiktok", titulo_yt)
-    descricao    = dados.get("descricao",     "")
-    gancho       = corte_info.get("gancho",   "") if corte_info else dados.get("roteiro","")[:80]
-    tipo         = corte_info.get("tipo",     dados.get("formato","")) if corte_info else dados.get("formato","")
-    dur          = corte_info.get("duracao",  0) if corte_info else 0
+    titulo_yt = dados.get(
+        "titulo_yt", corte_info.get("titulo", "") if corte_info else ""
+    )
+    titulo_tt = dados.get("titulo_tiktok", titulo_yt)
+    descricao = dados.get("descricao", "")
+    gancho = (
+        corte_info.get("gancho", "") if corte_info else dados.get("roteiro", "")[:80]
+    )
+    tipo = (
+        corte_info.get("tipo", dados.get("formato", ""))
+        if corte_info
+        else dados.get("formato", "")
+    )
+    dur = corte_info.get("duracao", 0) if corte_info else 0
 
     conteudo = (
         f"=== YOUTUBE SHORTS ===\n"

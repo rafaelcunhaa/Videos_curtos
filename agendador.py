@@ -33,21 +33,31 @@
 =======================================================
 """
 
+import argparse
 import re
-import os, sys, json, time, argparse, schedule
-from typing import Optional
-from pathlib import Path
+import sys
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+import schedule
+
+import banco
+from banco import limpar_agendamentos
+from constantes import (
+    UPLOAD_CHUNK_SIZE_BYTES,
+    YOUTUBE_MAX_DESCRICAO,
+    YOUTUBE_MAX_TITULO,
+)
 from logger_setup import get_logger
 from retry import chamar_youtube
 from telegram import notificar
-import banco
-from banco import limpar_agendamentos, listar_cortes, registrar_video, registrar_corte
-from constantes import UPLOAD_CHUNK_SIZE_BYTES, YOUTUBE_MAX_TITULO, YOUTUBE_MAX_DESCRICAO, YOUTUBE_MAX_TAGS
+
 try:
+    from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 except ImportError:
@@ -58,6 +68,7 @@ except ImportError:
     MediaFileUpload = None
 try:
     from tiktok import tiktok as tiktok_client
+
     TIKTOK_DISPONIVEL = True
 except ImportError:
     TIKTOK_DISPONIVEL = False
@@ -67,19 +78,19 @@ logger = get_logger(__name__)
 # ═══════════════════════════════════════════════════════
 #  CONFIGURAÇÕES — lidas de config.py (edite lá, não aqui)
 # ═══════════════════════════════════════════════════════
-CREDENTIALS_FILE = "credentials.json"    # baixado do Google Cloud Console
-TOKEN_FILE       = "token.json"          # gerado automaticamente após auth
+CREDENTIALS_FILE = "credentials.json"  # baixado do Google Cloud Console
+TOKEN_FILE = "token.json"  # gerado automaticamente após auth
 
 from config import cfg
 
 # Horários ideais para postar (hora local)
-HORARIOS_IDEAIS  = cfg.horarios_ideais
+HORARIOS_IDEAIS = cfg.horarios_ideais
 
 # Intervalo mínimo entre posts (em horas)
-INTERVALO_HORAS  = cfg.intervalo_horas
+INTERVALO_HORAS = cfg.intervalo_horas
 
 # Categoria do YouTube (22 = Pessoas e Blogs, 29 = Sem fins lucrativos)
-CATEGORIA_ID     = cfg.categoria_id
+CATEGORIA_ID = cfg.categoria_id
 
 # Privacidade padrão ao agendar (public | private | unlisted)
 PRIVACIDADE_PADRAO = cfg.privacidade_padrao
@@ -90,15 +101,21 @@ DAEMON_INTERVALO_MIN = cfg.daemon_intervalo_min
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
+
 def log(msg, nivel="INFO"):
     hora = datetime.now().strftime("%H:%M:%S")
-    p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","YT":"📺","DB":"🗄️"}
+    p = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→", "YT": "📺", "DB": "🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
-    if nivel == "ERRO":   logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
+
 
 # ─── AUTENTICAÇÃO GOOGLE ──────────────────────────────────
+
 
 def autenticar():
     """OAuth2 com YouTube — abre navegador na primeira vez"""
@@ -122,13 +139,15 @@ def autenticar():
                 print("  1. Acesse: https://console.cloud.google.com")
                 print("  2. Crie um projeto (ou selecione um existente)")
                 print("  3. Ative a 'YouTube Data API v3'")
-                print("  4. Vá em 'Credenciais' → 'Criar credencial' → 'ID do cliente OAuth'")
+                print(
+                    "  4. Vá em 'Credenciais' → 'Criar credencial' → 'ID do cliente OAuth'"
+                )
                 print("  5. Tipo: 'App para computador'")
                 print("  6. Baixe o JSON e salve como: credentials.json")
                 print("  7. Rode: python agendador.py --auth\n")
                 sys.exit(1)
 
-            flow  = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
             log("Autenticação realizada com sucesso! ✅", "YT")
 
@@ -137,6 +156,7 @@ def autenticar():
 
     return creds
 
+
 def criar_servico_youtube():
     if not build:
         log("googleapiclient não instalado", "ERRO")
@@ -144,7 +164,9 @@ def criar_servico_youtube():
     creds = autenticar()
     return build("youtube", "v3", credentials=creds)
 
+
 # ─── UPLOAD PARA YOUTUBE ──────────────────────────────────
+
 
 def fazer_upload(corte: dict) -> Optional[str]:
     """Faz o upload do Short para o YouTube"""
@@ -158,9 +180,9 @@ def fazer_upload(corte: dict) -> Optional[str]:
         return None
 
     # Carregar título e descrição do arquivo .txt se existir
-    titulo    = corte.get("titulo_yt") or corte.get("titulo") or "Short"
+    titulo = corte.get("titulo_yt") or corte.get("titulo") or "Short"
     descricao = corte.get("descricao") or ""
-    hashtags  = []
+    hashtags = []
 
     caminho_txt = corte.get("caminho_txt")
     if caminho_txt and Path(caminho_txt).exists():
@@ -194,34 +216,35 @@ def fazer_upload(corte: dict) -> Optional[str]:
     tags = [h.lstrip("#") for h in hashtags][:15]  # YouTube aceita até 15 tags
 
     log(f"Iniciando upload: {titulo[:50]}...", "YT")
-    log(f"Arquivo: {Path(caminho_video).name} ({Path(caminho_video).stat().st_size/1024/1024:.1f} MB)", "YT")
+    log(
+        f"Arquivo: {Path(caminho_video).name} ({Path(caminho_video).stat().st_size/1024/1024:.1f} MB)",
+        "YT",
+    )
 
     servico = criar_servico_youtube()
 
     corpo = {
         "snippet": {
-            "title":       titulo[:YOUTUBE_MAX_TITULO],
+            "title": titulo[:YOUTUBE_MAX_TITULO],
             "description": descricao_final[:YOUTUBE_MAX_DESCRICAO],
-            "tags":        tags,
-            "categoryId":  CATEGORIA_ID,
+            "tags": tags,
+            "categoryId": CATEGORIA_ID,
         },
         "status": {
-            "privacyStatus":          PRIVACIDADE_PADRAO,
+            "privacyStatus": PRIVACIDADE_PADRAO,
             "selfDeclaredMadeForKids": False,
-        }
+        },
     }
 
     midia = MediaFileUpload(
         caminho_video,
         mimetype="video/mp4",
         resumable=True,
-        chunksize=UPLOAD_CHUNK_SIZE_BYTES
+        chunksize=UPLOAD_CHUNK_SIZE_BYTES,
     )
 
     requisicao = servico.videos().insert(
-        part="snippet,status",
-        body=corpo,
-        media_body=midia
+        part="snippet,status", body=corpo, media_body=midia
     )
 
     # Upload com progresso
@@ -236,7 +259,7 @@ def fazer_upload(corte: dict) -> Optional[str]:
 
     video_id = resposta.get("id")
     url_short = f"https://youtube.com/shorts/{video_id}"
-    log(f"✅ Postado no YouTube!", "YT")
+    log("✅ Postado no YouTube!", "YT")
     log(f"   URL: {url_short}", "YT")
 
     return video_id
@@ -253,7 +276,11 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
         return None
 
     # Ler título e hashtags do .txt se existir
-    titulo   = corte.get("titulo_tiktok") or corte.get("titulo_yt") or corte.get("titulo","Short")
+    titulo = (
+        corte.get("titulo_tiktok")
+        or corte.get("titulo_yt")
+        or corte.get("titulo", "Short")
+    )
     hashtags = []
     descricao = ""
 
@@ -263,11 +290,7 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
         conteudo = Path(caminho_txt).read_text(encoding="utf-8")
 
         # Parte do TikTok
-        m = re.search(
-            r"==== TIKTOK ====(.*?)==== INFO ====",
-            conteudo,
-            re.S
-        )
+        m = re.search(r"==== TIKTOK ====(.*?)==== INFO ====", conteudo, re.S)
 
         if m:
             bloco = m.group(1)
@@ -304,13 +327,15 @@ def fazer_upload_tiktok(corte: dict) -> Optional[str]:
 
     return None
 
+
 # ─── AGENDAMENTO ─────────────────────────────────────────
+
 
 def proximos_horarios(quantidade: int = 10) -> list:
     """Calcula os próximos horários de postagem ideais"""
-    agora    = datetime.now()
+    agora = datetime.now()
     horarios = []
-    dia      = agora
+    dia = agora
 
     while len(horarios) < quantidade:
         for h in HORARIOS_IDEAIS:
@@ -322,12 +347,15 @@ def proximos_horarios(quantidade: int = 10) -> list:
 
     return sorted(horarios)[:quantidade]
 
-def agendar_corte_automatico(corte_id: int, data_hora_str: Optional[str] = None) -> Optional[datetime]:
+
+def agendar_corte_automatico(
+    corte_id: int, data_hora_str: Optional[str] = None
+) -> Optional[datetime]:
     """Agenda um corte — escolhe horário ideal se não especificado"""
     banco.inicializar()
 
     cortes = banco.listar_cortes()
-    corte  = next((c for c in cortes if c["id"] == corte_id), None)
+    corte = next((c for c in cortes if c["id"] == corte_id), None)
     if not corte:
         log(f"Corte {corte_id} não encontrado no banco.", "ERRO")
         return
@@ -353,19 +381,25 @@ def agendar_corte_automatico(corte_id: int, data_hora_str: Optional[str] = None)
                     logger.error(
                         "Corte %s tem agendado_para malformado: %r (erro: %s). "
                         "Resetando status para 'pronto' para evitar conflitos.",
-                        ag.get("id"), ag.get("agendado_para"), e
+                        ag.get("id"),
+                        ag.get("agendado_para"),
+                        e,
                     )
                     # Resetar o corte com data inválida para status 'pronto'
                     try:
                         banco.atualizar_status_corte(ag["id"], "pronto")
                     except Exception as reset_err:
-                        logger.error("Falha ao resetar corte %s: %s", ag.get("id"), reset_err)
+                        logger.error(
+                            "Falha ao resetar corte %s: %s", ag.get("id"), reset_err
+                        )
 
         dt = None
         for h in proximos_horarios(20):
             # Verificar intervalo mínimo
-            conflito = any(abs((h - oc).total_seconds()) < INTERVALO_HORAS * 3600
-                          for oc in horarios_ocupados)
+            conflito = any(
+                abs((h - oc).total_seconds()) < INTERVALO_HORAS * 3600
+                for oc in horarios_ocupados
+            )
             if not conflito:
                 dt = h
                 break
@@ -378,6 +412,7 @@ def agendar_corte_automatico(corte_id: int, data_hora_str: Optional[str] = None)
     log(f"Título: {corte.get('titulo','—')}")
     return dt
 
+
 def eh_video_ia(corte: dict) -> bool:
     titulo = (corte.get("titulo_video") or "").lower()
 
@@ -387,7 +422,7 @@ def eh_video_ia(corte: dict) -> bool:
         "openai",
         "claude",
         "gemini",
-        "inteligência artificial"
+        "inteligência artificial",
     ]
 
     return any(p in titulo for p in palavras)
@@ -415,6 +450,7 @@ def montar_fila_publicacao(ia: list, podcasts: list) -> list:
         fila.append(podcasts_restantes.pop(0))
 
     return fila
+
 
 def agendar_lote():
     """Agenda todos os cortes prontos nos próximos horários ideais"""
@@ -445,12 +481,16 @@ def agendar_lote():
                 logger.error(
                     "Corte %s tem agendado_para malformado: %r (erro: %s). "
                     "Resetando para 'pronto'.",
-                    ag.get("id"), ag.get("agendado_para"), e
+                    ag.get("id"),
+                    ag.get("agendado_para"),
+                    e,
                 )
                 try:
                     banco.atualizar_status_corte(ag["id"], "pronto")
                 except Exception as reset_err:
-                    logger.error("Falha ao resetar corte %s: %s", ag.get("id"), reset_err)
+                    logger.error(
+                        "Falha ao resetar corte %s: %s", ag.get("id"), reset_err
+                    )
 
     horarios_disponiveis = []
     multiplicador = 3
@@ -459,8 +499,10 @@ def agendar_lote():
     while len(horarios_disponiveis) < len(prontos) and tentativa < TENTATIVA_MAX:
         horarios_disponiveis = []  # recalcula do zero a cada expansão
         for h in proximos_horarios(len(prontos) * multiplicador):
-            conflito = any(abs((h - oc).total_seconds()) < INTERVALO_HORAS * 3600
-                          for oc in horarios_ocupados + horarios_disponiveis)
+            conflito = any(
+                abs((h - oc).total_seconds()) < INTERVALO_HORAS * 3600
+                for oc in horarios_ocupados + horarios_disponiveis
+            )
             if not conflito:
                 horarios_disponiveis.append(h)
             if len(horarios_disponiveis) >= len(prontos):
@@ -476,12 +518,14 @@ def agendar_lote():
             "agendar_lote: só %d de %d cortes 'prontos' encontraram horário "
             "livre após %d tentativas de expansão — a agenda existente está "
             "muito densa. Os cortes restantes permanecem com status 'pronto'.",
-            len(horarios_disponiveis), len(prontos), tentativa
+            len(horarios_disponiveis),
+            len(prontos),
+            tentativa,
         )
 
     print(f"\n{'Corte':<6} {'Título':<35} {'Agendado para':<20}")
     print("─" * 65)
-    
+
     agendados_de_fato = 0
     relatorio = []
     for corte, dt in zip(prontos, horarios_disponiveis):
@@ -495,11 +539,15 @@ def agendar_lote():
         agendados_de_fato += 1
 
     if agendados_de_fato < len(prontos):
-        print(f"\n⚠️  {agendados_de_fato} de {len(prontos)} cortes agendados — "
-              f"{len(prontos) - agendados_de_fato} ficaram sem horário livre "
-              f"disponível e permanecem com status 'pronto'.")
+        print(
+            f"\n⚠️  {agendados_de_fato} de {len(prontos)} cortes agendados — "
+            f"{len(prontos) - agendados_de_fato} ficaram sem horário livre "
+            f"disponível e permanecem com status 'pronto'."
+        )
     else:
-        print(f"\n✅ {agendados_de_fato} cortes agendados com intervalo mínimo de {INTERVALO_HORAS}h entre posts.")
+        print(
+            f"\n✅ {agendados_de_fato} cortes agendados com intervalo mínimo de {INTERVALO_HORAS}h entre posts."
+        )
 
     if relatorio:
         mensagem = (
@@ -519,14 +567,15 @@ def agendar_lote():
                     parte = parte[:corte]
 
             notificar._enviar(parte, silencioso=True)
-            mensagem = mensagem[len(parte):].lstrip()
+            mensagem = mensagem[len(parte) :].lstrip()
+
 
 def postar_agora(corte_id: int) -> bool:
     """Faz upload imediato de um corte"""
     banco.inicializar()
 
     cortes = banco.listar_cortes()
-    corte  = next((c for c in cortes if c["id"] == corte_id), None)
+    corte = next((c for c in cortes if c["id"] == corte_id), None)
     if not corte:
         log(f"Corte {corte_id} não encontrado.", "ERRO")
         return False
@@ -535,11 +584,7 @@ def postar_agora(corte_id: int) -> bool:
     yt_id = fazer_upload(corte)
 
     if yt_id:
-        banco.atualizar_status_corte(
-            corte["id"],
-            "postado",
-            youtube_short_id=yt_id
-        )
+        banco.atualizar_status_corte(corte["id"], "postado", youtube_short_id=yt_id)
 
         url_short = f"https://youtube.com/shorts/{yt_id}"
         log(f"✅ Postado no YouTube: {url_short}", "YT")
@@ -554,19 +599,20 @@ def postar_agora(corte_id: int) -> bool:
             log(
                 "TikTok não confirmou a postagem. "
                 "Vídeo mantido para nova tentativa.",
-                "AVISO"
+                "AVISO",
             )
 
         notificar.short_postado(
-            titulo=corte.get("titulo_yt") or corte.get("titulo","Short"),
+            titulo=corte.get("titulo_yt") or corte.get("titulo", "Short"),
             url_short=url_short,
-            duracao_s=corte.get("duracao_s", 0)
+            duracao_s=corte.get("duracao_s", 0),
         )
         return True
     else:
         log("Upload falhou.", "ERRO")
         notificar.erro("agendador.py", f"Upload falhou para o corte {corte_id}")
         return False
+
 
 def excluir_video_local(caminho_video: str) -> None:
     """Exclui o vídeo local depois que ele foi publicado."""
@@ -582,13 +628,14 @@ def excluir_video_local(caminho_video: str) -> None:
             log(
                 f"🗑️ Vídeo excluído do armazenamento: "
                 f"{arquivo.name} ({tamanho:.1f} MB)",
-                "DB"
+                "DB",
             )
         else:
             log(f"Vídeo já não existe: {arquivo}", "AVISO")
 
     except Exception as e:
         log(f"Não foi possível excluir o vídeo {arquivo}: {e}", "AVISO")
+
 
 def verificar_e_postar_agendados():
     """Verifica a fila e posta os que chegaram na hora"""
@@ -610,9 +657,9 @@ def verificar_e_postar_agendados():
             fazer_upload_tiktok(corte)
 
             notificar.short_postado(
-                titulo=corte.get("titulo_yt") or corte.get("titulo","Short"),
+                titulo=corte.get("titulo_yt") or corte.get("titulo", "Short"),
                 url_short=url_short,
-                duracao_s=corte.get("duracao_s", 0)
+                duracao_s=corte.get("duracao_s", 0),
             )
 
             # Excluir vídeo local após publicação
@@ -621,35 +668,36 @@ def verificar_e_postar_agendados():
             log(f"Falha no upload do corte {corte['id']}", "ERRO")
             notificar.erro(
                 origem="agendador.py",
-                mensagem=f"Falha no upload do corte {corte['id']}: {corte.get('titulo','')}"
+                mensagem=f"Falha no upload do corte {corte['id']}: {corte.get('titulo','')}",
             )
         time.sleep(5)  # pausa entre uploads
+
 
 def listar_fila():
     """Mostra a fila de agendamentos"""
     banco.inicializar()
 
-    prontos   = banco.listar_cortes(status="pronto")
+    prontos = banco.listar_cortes(status="pronto")
     agendados = banco.listar_cortes(status="agendado")
-    postados  = banco.listar_cortes(status="postado")
+    postados = banco.listar_cortes(status="postado")
 
-    print("\n" + "═"*65)
+    print("\n" + "═" * 65)
     print("  FILA DE POSTAGEM")
-    print("═"*65)
+    print("═" * 65)
 
     if agendados:
         print(f"\n📅 AGENDADOS ({len(agendados)}):\n")
         print(f"  {'ID':>4}  {'Data/hora':>16}  {'Dur':>4}  Título")
-        print("  " + "─"*58)
-        for c in sorted(agendados, key=lambda x: x.get("agendado_para","")):
-            agendado = c.get("agendado_para","—")
+        print("  " + "─" * 58)
+        for c in sorted(agendados, key=lambda x: x.get("agendado_para", "")):
+            agendado = c.get("agendado_para", "—")
             try:
                 dt = datetime.strptime(agendado, "%Y-%m-%d %H:%M:%S")
                 agendado = dt.strftime("%d/%m/%Y %H:%M")
                 diff = dt - datetime.now()
                 if diff.total_seconds() > 0:
                     horas = int(diff.total_seconds() // 3600)
-                    mins  = int((diff.total_seconds() % 3600) // 60)
+                    mins = int((diff.total_seconds() % 3600) // 60)
                     agendado += f" (em {horas}h{mins:02d}m)"
             except Exception:
                 # listar_fila() é só exibição: se a conversão de data falhar,
@@ -658,20 +706,24 @@ def listar_fila():
                 # Sem efeito sobre o agendamento real, só sobre o texto exibido.
                 pass
             dur = f"{c.get('duracao_s',0):.0f}s"
-            print(f"  {c['id']:>4}  {agendado:<35}  {dur:>4}  {(c.get('titulo') or '—')[:25]}")
+            print(
+                f"  {c['id']:>4}  {agendado:<35}  {dur:>4}  {(c.get('titulo') or '—')[:25]}"
+            )
 
     if prontos:
         print(f"\n🎥 PRONTOS para agendar ({len(prontos)}):\n")
         print(f"  {'ID':>4}  {'Tipo':>6}  {'Dur':>4}  Título")
-        print("  " + "─"*50)
+        print("  " + "─" * 50)
         for c in prontos:
             dur = f"{c.get('duracao_s',0):.0f}s"
-            print(f"  {c['id']:>4}  {c.get('tipo','—'):>6}  {dur:>4}  {(c.get('titulo') or '—')[:35]}")
+            print(
+                f"  {c['id']:>4}  {c.get('tipo','—'):>6}  {dur:>4}  {(c.get('titulo') or '—')[:35]}"
+            )
 
     if postados:
         print(f"\n✅ POSTADOS ({len(postados)}) — últimos 5:\n")
         for c in postados[-5:]:
-            yt_id = c.get("youtube_short_id","—")
+            yt_id = c.get("youtube_short_id", "—")
             print(f"  [{c['id']:>4}] {(c.get('titulo') or '—')[:35]}")
             if yt_id and yt_id != "—":
                 print(f"         https://youtube.com/shorts/{yt_id}")
@@ -681,6 +733,7 @@ def listar_fila():
         print("  Rode primeiro: python youtube_para_shorts.py --url URL\n")
 
     print()
+
 
 def daemon():
     """Loop que verifica e posta agendados automaticamente"""
@@ -700,27 +753,46 @@ def daemon():
     except KeyboardInterrupt:
         log("Daemon encerrado pelo usuário.")
 
+
 # ─── CLI ─────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="Agendador de postagem — YouTube Shorts"
     )
-    parser.add_argument("--auth",           action="store_true",
-                        help="Autenticar com conta do YouTube")
-    parser.add_argument("--agendar",        metavar="CORTE_ID",
-                        help="Agendar um corte (adicione data opcional: '2026-06-25 14:30')")
-    parser.add_argument("--data",           metavar="'AAAA-MM-DD HH:MM'",
-                        help="Data/hora para o agendamento")
-    parser.add_argument("--agendar-lote",   action="store_true",
-                        help="Agenda todos os cortes prontos automaticamente")
-    parser.add_argument("--listar",         action="store_true",
-                        help="Mostra a fila de agendamentos")
-    parser.add_argument("--postar-agora",   metavar="CORTE_ID",
-                        help="Posta um corte imediatamente")
-    parser.add_argument("--daemon",         action="store_true",
-                        help="Roda em loop postando agendados automaticamente")
-    parser.add_argument("--reagendar",action="store_true",help="Apaga todos os agendamentos futuros e agenda novamente.")
+    parser.add_argument(
+        "--auth", action="store_true", help="Autenticar com conta do YouTube"
+    )
+    parser.add_argument(
+        "--agendar",
+        metavar="CORTE_ID",
+        help="Agendar um corte (adicione data opcional: '2026-06-25 14:30')",
+    )
+    parser.add_argument(
+        "--data", metavar="'AAAA-MM-DD HH:MM'", help="Data/hora para o agendamento"
+    )
+    parser.add_argument(
+        "--agendar-lote",
+        action="store_true",
+        help="Agenda todos os cortes prontos automaticamente",
+    )
+    parser.add_argument(
+        "--listar", action="store_true", help="Mostra a fila de agendamentos"
+    )
+    parser.add_argument(
+        "--postar-agora", metavar="CORTE_ID", help="Posta um corte imediatamente"
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Roda em loop postando agendados automaticamente",
+    )
+    parser.add_argument(
+        "--reagendar",
+        action="store_true",
+        help="Apaga todos os agendamentos futuros e agenda novamente.",
+    )
     args = parser.parse_args()
 
     if args.auth:
@@ -747,17 +819,14 @@ def main():
 
         total = limpar_agendamentos()
 
-        logger.info(
-            "Foram removidos %d agendamentos futuros.",
-            total
-        )
+        logger.info("Foram removidos %d agendamentos futuros.", total)
 
         print(f"\n✓ {total} vídeos voltaram para PRONTO.\n")
 
     else:
-        print("\n" + "═"*55)
+        print("\n" + "═" * 55)
         print("  AGENDADOR DE SHORTS — YouTube")
-        print("═"*55)
+        print("═" * 55)
         parser.print_help()
         print("\nExemplos rápidos:")
         print("  python agendador.py --auth")
@@ -766,6 +835,7 @@ def main():
         print("  python agendador.py --agendar 3 --data '2026-06-25 18:00'")
         print("  python agendador.py --postar-agora 1")
         print("  python agendador.py --daemon\n")
+
 
 if __name__ == "__main__":
     main()

@@ -18,8 +18,7 @@ Uso:
 
 import logging
 import time
-import functools
-from typing import Callable, Any
+from typing import Any, Callable
 
 try:
     import anthropic
@@ -27,24 +26,24 @@ except ImportError:
     anthropic = None
 
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
-    RetryError,
 )
 
 logger = logging.getLogger(__name__)
 
 # ── Configurações de retry ────────────────────────────────
-MAX_TENTATIVAS   = 5
-ESPERA_MIN_S     = 2    # espera mínima entre tentativas (segundos)
-ESPERA_MAX_S     = 60   # espera máxima (segundos)
-MULTIPLICADOR    = 2    # fator de crescimento (2s → 4s → 8s → 16s → 32s)
+MAX_TENTATIVAS = 5
+ESPERA_MIN_S = 2  # espera mínima entre tentativas (segundos)
+ESPERA_MAX_S = 60  # espera máxima (segundos)
+MULTIPLICADOR = 2  # fator de crescimento (2s → 4s → 8s → 16s → 32s)
 
 
 # ── Exceções que merecem retry ────────────────────────────
+
 
 def _erro_temporario_anthropic(exc: Exception) -> bool:
     """Retorna True para erros que valem retry na API Anthropic."""
@@ -60,44 +59,56 @@ def _erro_temporario_anthropic(exc: Exception) -> bool:
             return True
     # Fallback genérico
     msg = str(exc).lower()
-    return any(k in msg for k in ("rate limit", "429", "500", "503", "timeout", "connection"))
+    return any(
+        k in msg for k in ("rate limit", "429", "500", "503", "timeout", "connection")
+    )
 
 
 def _erro_temporario_elevenlabs(exc: Exception) -> bool:
     """Retorna True para erros temporários na API ElevenLabs."""
     msg = str(exc).lower()
-    return any(k in msg for k in ("rate limit", "429", "500", "503", "timeout", "connection"))
+    return any(
+        k in msg for k in ("rate limit", "429", "500", "503", "timeout", "connection")
+    )
 
 
 def _erro_temporario_youtube(exc: Exception) -> bool:
     """Retorna True para erros temporários na API YouTube."""
     try:
         from googleapiclient.errors import HttpError
+
         if isinstance(exc, HttpError):
             return exc.resp.status in (429, 500, 502, 503, 504)
     except ImportError:
         pass
     msg = str(exc).lower()
-    return any(k in msg for k in ("quota", "rate limit", "429", "500", "503", "timeout"))
+    return any(
+        k in msg for k in ("quota", "rate limit", "429", "500", "503", "timeout")
+    )
 
 
 # ── Decorators de retry ───────────────────────────────────
 
+
 def _fazer_retry(verificar_exc: Callable, label: str):
     """Factory que cria decorators de retry parametrizados."""
     return retry(
-        retry=retry_if_exception_type(Exception) if verificar_exc is None
-              else lambda exc: verificar_exc(exc),
+        retry=(
+            retry_if_exception_type(Exception)
+            if verificar_exc is None
+            else lambda exc: verificar_exc(exc)
+        ),
         stop=stop_after_attempt(MAX_TENTATIVAS),
-        wait=wait_exponential(multiplier=MULTIPLICADOR,
-                              min=ESPERA_MIN_S,
-                              max=ESPERA_MAX_S),
+        wait=wait_exponential(
+            multiplier=MULTIPLICADOR, min=ESPERA_MIN_S, max=ESPERA_MAX_S
+        ),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
 
 
 # ── Funções de chamada com retry ─────────────────────────
+
 
 def chamar_anthropic(func: Callable, *args, **kwargs) -> Any:
     """
@@ -122,10 +133,15 @@ def chamar_anthropic(func: Callable, *args, **kwargs) -> Any:
                 # Erro permanente (ex: chave inválida) — não adianta retry
                 logger.error("Erro permanente Anthropic: %s", exc)
                 raise
-            espera = min(ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S)
+            espera = min(
+                ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S
+            )
             logger.warning(
                 "Anthropic API erro temporário (tentativa %d/%d): %s — aguardando %ds...",
-                tentativa, MAX_TENTATIVAS, type(exc).__name__, espera
+                tentativa,
+                MAX_TENTATIVAS,
+                type(exc).__name__,
+                espera,
             )
             if tentativa < MAX_TENTATIVAS:
                 time.sleep(espera)
@@ -144,10 +160,15 @@ def chamar_elevenlabs(func: Callable, *args, **kwargs) -> Any:
             ultimo_erro = exc
             if not _erro_temporario_elevenlabs(exc):
                 raise
-            espera = min(ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S)
+            espera = min(
+                ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S
+            )
             logger.warning(
                 "ElevenLabs erro (tentativa %d/%d): %s — aguardando %ds...",
-                tentativa, MAX_TENTATIVAS, type(exc).__name__, espera
+                tentativa,
+                MAX_TENTATIVAS,
+                type(exc).__name__,
+                espera,
             )
             if tentativa < MAX_TENTATIVAS:
                 time.sleep(espera)
@@ -164,10 +185,15 @@ def chamar_youtube(func: Callable, *args, **kwargs) -> Any:
             ultimo_erro = exc
             if not _erro_temporario_youtube(exc):
                 raise
-            espera = min(ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S)
+            espera = min(
+                ESPERA_MIN_S * (MULTIPLICADOR ** (tentativa - 1)), ESPERA_MAX_S
+            )
             logger.warning(
                 "YouTube API erro (tentativa %d/%d): %s — aguardando %ds...",
-                tentativa, MAX_TENTATIVAS, type(exc).__name__, espera
+                tentativa,
+                MAX_TENTATIVAS,
+                type(exc).__name__,
+                espera,
             )
             if tentativa < MAX_TENTATIVAS:
                 time.sleep(espera)

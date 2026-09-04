@@ -24,13 +24,12 @@
 =======================================================
 """
 
-import os
-import sys
-import json
 import argparse
-import subprocess
-import traceback
+import json
 import platform
+import subprocess
+import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -38,17 +37,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import banco
-from logger_setup import get_logger
 from config import cfg
+from logger_setup import get_logger
 from telegram import notificar
+
 try:
-    from analytics import coletar_metricas, analisar_com_ia, obter_config_otimizada
+    from analytics import analisar_com_ia, coletar_metricas, obter_config_otimizada
+
     ANALYTICS_DISPONIVEL = True
 except ImportError:
     ANALYTICS_DISPONIVEL = False
 
 try:
     from fundos import garantir_minimo as _garantir_fundos
+
     FUNDOS_DISPONIVEL = True
 except ImportError:
     FUNDOS_DISPONIVEL = False
@@ -64,18 +66,21 @@ ARQUIVO_URLS = Path("urls_diarias.txt")
 FORMATOS_DIARIOS = ["reflexao", "historia", "versiculo"]
 
 # Horário do cron (padrão: 6h da manhã)
-CRON_HORA   = 6
+CRON_HORA = 6
 CRON_MINUTO = 0
 # ─────────────────────────────────────────────────────────
 
 
 def log(msg: str, nivel: str = "INFO") -> None:
-    hora  = datetime.now().strftime("%H:%M:%S")
+    hora = datetime.now().strftime("%H:%M:%S")
     icons = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→"}
     print(f"[{hora}] {icons.get(nivel, '·')} {msg}")
-    if nivel == "ERRO":    logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
 
 
 def cabecalho():
@@ -86,6 +91,7 @@ def cabecalho():
 
 # ── ETAPA 1: Gerar conteúdo original ─────────────────────
 
+
 def etapa_gerar_conteudo() -> dict:
     """Roda o gerador de conteúdo e retorna resultado."""
     print("\n🎬 ETAPA 1: Gerando conteúdo original\n" + "─" * 45)
@@ -95,6 +101,7 @@ def etapa_gerar_conteudo() -> dict:
     try:
         # Importar e rodar gerador
         from gerador_conteudo import gerar_videos_do_dia
+
         prontos = gerar_videos_do_dia(formatos=FORMATOS_DIARIOS)
         resultado["gerados"] = len(prontos)
         log(f"Gerador: {len(prontos)} vídeos criados")
@@ -110,6 +117,7 @@ def etapa_gerar_conteudo() -> dict:
 
 # ── ETAPA 2: Processar URLs de podcasts ──────────────────
 
+
 def etapa_processar_urls() -> dict:
     """Lê urls_diarias.txt e processa cada URL."""
     print("\n📥 ETAPA 2: Processando podcasts do YouTube\n" + "─" * 45)
@@ -118,11 +126,12 @@ def etapa_processar_urls() -> dict:
 
     if not ARQUIVO_URLS.exists():
         log(f"'{ARQUIVO_URLS}' não encontrado — pulando etapa de podcasts", "AVISO")
-        log(f"Crie o arquivo com uma URL por linha para ativar esta etapa")
+        log("Crie o arquivo com uma URL por linha para ativar esta etapa")
         return resultado
 
     urls = [
-        linha.strip() for linha in ARQUIVO_URLS.read_text(encoding="utf-8").splitlines()
+        linha.strip()
+        for linha in ARQUIVO_URLS.read_text(encoding="utf-8").splitlines()
         if linha.strip() and not linha.strip().startswith("#")
     ]
 
@@ -134,17 +143,20 @@ def etapa_processar_urls() -> dict:
 
     try:
         from youtube_para_shorts import pipeline
+
         for url in urls:
             try:
                 log(f"Processando: {url}", "PROC")
                 prontos = pipeline(url)
                 resultado["processados"] += 1
-                resultado["cortes"]      += len(prontos)
+                resultado["cortes"] += len(prontos)
                 log(f"  → {len(prontos)} cortes gerados")
             except Exception as e:
                 resultado["erros"] += 1
                 log(f"  → Erro: {e}", "ERRO")
-                notificar.erro("run_diario → youtube", f"Falha em {url}: {e}", excecao=e)
+                notificar.erro(
+                    "run_diario → youtube", f"Falha em {url}: {e}", excecao=e
+                )
                 logger.error("Traceback URL %s:\n%s", url, traceback.format_exc())
 
     except ImportError as e:
@@ -155,6 +167,7 @@ def etapa_processar_urls() -> dict:
 
 # ── ETAPA 3: Agendar todos os prontos ────────────────────
 
+
 def etapa_agendar() -> dict:
     """Agenda automaticamente todos os cortes com status 'pronto'."""
     print("\n📅 ETAPA 3: Agendando vídeos prontos\n" + "─" * 45)
@@ -163,6 +176,7 @@ def etapa_agendar() -> dict:
 
     try:
         from agendador import agendar_lote
+
         banco.inicializar()
 
         prontos_antes = len(banco.listar_cortes(status="pronto"))
@@ -188,23 +202,23 @@ def etapa_agendar() -> dict:
 
 # ── ETAPA 4: Resumo e notificação ────────────────────────
 
-def etapa_resumo(r1: dict, r2: dict, r3: dict,
-                 inicio: datetime) -> None:
+
+def etapa_resumo(r1: dict, r2: dict, r3: dict, inicio: datetime) -> None:
     """Imprime resumo e envia via Telegram."""
     print("\n📊 RESUMO DO DIA\n" + "─" * 45)
 
-    duracao  = (datetime.now() - inicio).total_seconds()
-    mins     = int(duracao // 60)
-    segs     = int(duracao % 60)
+    duracao = (datetime.now() - inicio).total_seconds()
+    mins = int(duracao // 60)
+    segs = int(duracao % 60)
 
     try:
         s = banco.stats()
     except Exception:
         s = {}
 
-    total_gerados  = r1["gerados"] + r2["cortes"]
-    total_erros    = r1["erros"] + r2["erros"] + r3["erros"]
-    custo          = s.get("custo_total_usd", 0.0)
+    total_gerados = r1["gerados"] + r2["cortes"]
+    total_erros = r1["erros"] + r2["erros"] + r3["erros"]
+    custo = s.get("custo_total_usd", 0.0)
     agendados_hoje = r3["agendados"]
     postados_total = s.get("postados", 0)
 
@@ -216,7 +230,11 @@ def etapa_resumo(r1: dict, r2: dict, r3: dict,
     print(f"  Tempo total       : {mins}min {segs}s")
     print(f"  Custo API acum.   : ${custo:.4f} (~R${custo*5.6:.2f})")
 
-    status = "✅ Concluído" if total_erros == 0 else f"⚠️ Concluído com {total_erros} erro(s)"
+    status = (
+        "✅ Concluído"
+        if total_erros == 0
+        else f"⚠️ Concluído com {total_erros} erro(s)"
+    )
     print(f"\n  {status}")
     print("═" * 58 + "\n")
 
@@ -236,14 +254,14 @@ def etapa_resumo(r1: dict, r2: dict, r3: dict,
     historico_path = Path("logs") / "historico_diario.jsonl"
     historico_path.parent.mkdir(exist_ok=True)
     registro = {
-        "data":          datetime.now().strftime("%Y-%m-%d"),
-        "hora":          datetime.now().strftime("%H:%M:%S"),
-        "gerados":       total_gerados,
-        "agendados":     agendados_hoje,
-        "postados":      postados_total,
-        "erros":         total_erros,
-        "custo_usd":     custo,
-        "duracao_s":     int(duracao),
+        "data": datetime.now().strftime("%Y-%m-%d"),
+        "hora": datetime.now().strftime("%H:%M:%S"),
+        "gerados": total_gerados,
+        "agendados": agendados_hoje,
+        "postados": postados_total,
+        "erros": total_erros,
+        "custo_usd": custo,
+        "duracao_s": int(duracao),
     }
     with open(historico_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(registro, ensure_ascii=False) + "\n")
@@ -251,6 +269,7 @@ def etapa_resumo(r1: dict, r2: dict, r3: dict,
 
 
 # ── PIPELINE PRINCIPAL ────────────────────────────────────
+
 
 def rodar_pipeline() -> None:
     """Executa o pipeline diário completo."""
@@ -284,17 +303,21 @@ def rodar_pipeline() -> None:
     # Coletar métricas semanalmente (toda segunda-feira)
     if ANALYTICS_DISPONIVEL:
         from datetime import datetime as _dt
+
         if _dt.now().weekday() == 0:  # 0 = segunda-feira
             log("Segunda-feira: coletando métricas e analisando performance...", "PROC")
             try:
                 coletar_metricas(dias_atras=7)
                 analisar_com_ia()
-                log("Análise de performance concluída — veja: python analytics.py --recomendacoes")
+                log(
+                    "Análise de performance concluída — veja: python analytics.py --recomendacoes"
+                )
             except Exception as e:
                 log(f"Erro na análise: {e}", "AVISO")
 
 
 # ── GERENCIAMENTO DO CRON ─────────────────────────────────
+
 
 def _caminho_python() -> str:
     """Retorna o caminho absoluto do Python atual."""
@@ -303,8 +326,8 @@ def _caminho_python() -> str:
 
 def _linha_cron() -> str:
     """Retorna a linha cron para este script."""
-    script   = Path(__file__).resolve()
-    python   = _caminho_python()
+    script = Path(__file__).resolve()
+    python = _caminho_python()
     log_file = script.parent / "logs" / "cron.log"
     return (
         f"{CRON_MINUTO} {CRON_HORA} * * * "
@@ -325,8 +348,11 @@ def instalar_cron() -> None:
         # Ler crontab atual
         res = subprocess.run(
             ["crontab", "-l"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
         crontab_atual = res.stdout if res.returncode == 0 else ""
 
@@ -342,13 +368,16 @@ def instalar_cron() -> None:
         proc = subprocess.run(
             ["crontab", "-"],
             input=novo_crontab,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
         if proc.returncode == 0:
-            log(f"✅ Cron instalado com sucesso!")
+            log("✅ Cron instalado com sucesso!")
             log(f"   Rodará todo dia às {CRON_HORA:02d}:{CRON_MINUTO:02d}h")
-            log(f"   Logs em: logs/cron.log")
+            log("   Logs em: logs/cron.log")
         else:
             log(f"Erro ao instalar cron: {proc.stderr}", "ERRO")
 
@@ -358,19 +387,33 @@ def instalar_cron() -> None:
 
 def _instalar_task_scheduler() -> None:
     """Instala tarefa agendada no Windows Task Scheduler."""
-    script  = Path(__file__).resolve()
-    python  = _caminho_python()
-    nome    = "PipelineDiarioShorts"
+    script = Path(__file__).resolve()
+    python = _caminho_python()
+    nome = "PipelineDiarioShorts"
 
     cmd = [
-        "schtasks", "/create", "/f",
-        "/tn", nome,
-        "/tr", f'"{python}" "{script}"',
-        "/sc", "DAILY",
-        "/st", f"{CRON_HORA:02d}:{CRON_MINUTO:02d}",
-        "/rl", "HIGHEST",
+        "schtasks",
+        "/create",
+        "/f",
+        "/tn",
+        nome,
+        "/tr",
+        f'"{python}" "{script}"',
+        "/sc",
+        "DAILY",
+        "/st",
+        f"{CRON_HORA:02d}:{CRON_MINUTO:02d}",
+        "/rl",
+        "HIGHEST",
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    res = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
     if res.returncode == 0:
         log(f"✅ Tarefa '{nome}' instalada no Windows Task Scheduler!")
         log(f"   Rodará todo dia às {CRON_HORA:02d}:{CRON_MINUTO:02d}h")
@@ -383,10 +426,13 @@ def remover_cron() -> None:
     """Remove o cron job deste script."""
     if platform.system() == "Windows":
         nome = "PipelineDiarioShorts"
-        res  = subprocess.run(
+        res = subprocess.run(
             ["schtasks", "/delete", "/f", "/tn", nome],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=60
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
         )
         if res.returncode == 0:
             log(f"✅ Tarefa '{nome}' removida do Task Scheduler")
@@ -396,16 +442,28 @@ def remover_cron() -> None:
 
     script_path = str(Path(__file__).resolve())
     try:
-        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        res = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         if res.returncode != 0 or script_path not in res.stdout:
             log("Cron não estava instalado")
             return
-        linhas_filtradas = [
-            l for l in res.stdout.splitlines()
-            if script_path not in l
-        ]
+        linhas_filtradas = [l for l in res.stdout.splitlines() if script_path not in l]
         novo = "\n".join(linhas_filtradas) + "\n"
-        subprocess.run(["crontab", "-"], input=novo, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        subprocess.run(
+            ["crontab", "-"],
+            input=novo,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         log("✅ Cron removido com sucesso")
     except FileNotFoundError:
         log("'crontab' não encontrado", "ERRO")
@@ -413,7 +471,14 @@ def remover_cron() -> None:
 
 def _mostrar_cron_atual() -> None:
     try:
-        res = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        res = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         script_path = str(Path(__file__).resolve())
         for linha in res.stdout.splitlines():
             if script_path in linha:
@@ -436,16 +501,26 @@ def mostrar_status() -> None:
     # Status do cron
     if platform.system() == "Windows":
         nome = "PipelineDiarioShorts"
-        res  = subprocess.run(
+        res = subprocess.run(
             ["schtasks", "/query", "/tn", nome],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=60
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
         )
         instalado = res.returncode == 0
     else:
         try:
-            res       = subprocess.run(["crontab", "-l"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
-            script    = str(Path(__file__).resolve())
+            res = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            script = str(Path(__file__).resolve())
             instalado = script in res.stdout
         except Exception:
             instalado = False
@@ -462,21 +537,27 @@ def mostrar_status() -> None:
         ultimas = linhas[-5:]  # últimos 5 dias
         if ultimas:
             print("\n  Últimos dias:\n")
-            print(f"  {'Data':>10}  {'Gerados':>7}  {'Postados':>8}  {'Erros':>5}  {'Custo':>8}")
+            print(
+                f"  {'Data':>10}  {'Gerados':>7}  {'Postados':>8}  {'Erros':>5}  {'Custo':>8}"
+            )
             print("  " + "─" * 50)
             for linha in reversed(ultimas):
                 try:
                     d = json.loads(linha)
                     custo = f"R${d['custo_usd']*5.6:.2f}"
-                    print(f"  {d['data']:>10}  {d['gerados']:>7}  "
-                          f"{d['postados']:>8}  {d['erros']:>5}  {custo:>8}")
+                    print(
+                        f"  {d['data']:>10}  {d['gerados']:>7}  "
+                        f"{d['postados']:>8}  {d['erros']:>5}  {custo:>8}"
+                    )
                 except Exception as e:
                     # Linha corrompida no JSONL: desaparece da tabela sem
                     # aviso se não logarmos aqui. Não interrompe a listagem
                     # dos demais dias, mas registra o problema.
                     logger.warning(
                         "Linha corrompida em historico_diario.jsonl, "
-                        "pulando: %s — erro: %s", linha[:80], e
+                        "pulando: %s — erro: %s",
+                        linha[:80],
+                        e,
                     )
     else:
         print("\n  Histórico: nenhuma execução registrada ainda")
@@ -486,24 +567,38 @@ def mostrar_status() -> None:
 
 # ── CLI ───────────────────────────────────────────────────
 
+
 def main() -> None:
     global CRON_HORA, CRON_MINUTO
     parser = argparse.ArgumentParser(
         description="Pipeline diário automático — Shorts + TikTok"
     )
-    parser.add_argument("--instalar-cron", action="store_true",
-                        help=f"Instala execução automática todo dia às {CRON_HORA:02d}h")
-    parser.add_argument("--remover-cron",  action="store_true",
-                        help="Remove a execução automática")
-    parser.add_argument("--status",        action="store_true",
-                        help="Mostra status e histórico recente")
-    parser.add_argument("--hora",          type=int, default=CRON_HORA,
-                        help=f"Hora do cron (padrão: {CRON_HORA})")
-    parser.add_argument("--minuto",        type=int, default=CRON_MINUTO,
-                        help=f"Minuto do cron (padrão: {CRON_MINUTO})")
+    parser.add_argument(
+        "--instalar-cron",
+        action="store_true",
+        help=f"Instala execução automática todo dia às {CRON_HORA:02d}h",
+    )
+    parser.add_argument(
+        "--remover-cron", action="store_true", help="Remove a execução automática"
+    )
+    parser.add_argument(
+        "--status", action="store_true", help="Mostra status e histórico recente"
+    )
+    parser.add_argument(
+        "--hora",
+        type=int,
+        default=CRON_HORA,
+        help=f"Hora do cron (padrão: {CRON_HORA})",
+    )
+    parser.add_argument(
+        "--minuto",
+        type=int,
+        default=CRON_MINUTO,
+        help=f"Minuto do cron (padrão: {CRON_MINUTO})",
+    )
     args = parser.parse_args()
 
-    CRON_HORA   = args.hora
+    CRON_HORA = args.hora
     CRON_MINUTO = args.minuto
 
     if args.instalar_cron:

@@ -12,17 +12,19 @@
     python banco.py --importar-output (importar vídeos existentes da pasta output para o banco)
 =======================================================
 """
-import subprocess
-import sqlite3
-import json
-import re
-import logging
+
 import argparse
+import json
+import logging
 import random
+import re
+import sqlite3
+import subprocess
 from contextlib import contextmanager
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 from constantes import TAXA_CAMBIO_USD_BRL
 
 BANCO_ARQUIVO = "banco_shorts.db"
@@ -38,6 +40,7 @@ logger = logging.getLogger(__name__)
 # FIX: antes cada função abria e fechava conn manualmente,
 # sem garantia de fechar em caso de exceção (resource leak).
 # Agora usamos contextmanager que garante fechamento sempre.
+
 
 @contextmanager
 def get_conn():
@@ -55,7 +58,9 @@ def get_conn():
     finally:
         conn.close()
 
+
 # ─── INICIALIZAÇÃO ────────────────────────────────────────
+
 
 def inicializar():
     """Cria tabelas e índices se não existirem."""
@@ -117,7 +122,9 @@ def inicializar():
         """)
     logger.info("Banco inicializado: %s", BANCO_ARQUIVO)
 
+
 # ─── VÍDEOS ───────────────────────────────────────────────
+
 
 def extrair_youtube_id(url: str) -> str:
     """Extrai o ID do vídeo de qualquer formato de URL do YouTube."""
@@ -135,22 +142,25 @@ def extrair_youtube_id(url: str) -> str:
     # FIX: retornar hash do url inteiro para IDs locais (evita colisão)
     return url
 
+
 def video_ja_processado(url: str) -> Optional[dict]:
     """Retorna o registro se já processado, None caso contrário."""
     yt_id = extrair_youtube_id(url)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM videos WHERE youtube_id = ? AND num_cortes > 0",
-            (yt_id,)
+            "SELECT * FROM videos WHERE youtube_id = ? AND num_cortes > 0", (yt_id,)
         ).fetchone()
     return dict(row) if row else None
 
-def registrar_video(url: str, titulo: str, duracao_s: float,
-                    caminho_arquivo: Path) -> int:
+
+def registrar_video(
+    url: str, titulo: str, duracao_s: float, caminho_arquivo: Path
+) -> int:
     """Registra ou atualiza um vídeo. Retorna o ID interno."""
     yt_id = extrair_youtube_id(url)
     with get_conn() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO videos (youtube_id, url, titulo, duracao_s, caminho_arquivo)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(youtube_id) DO UPDATE SET
@@ -158,18 +168,22 @@ def registrar_video(url: str, titulo: str, duracao_s: float,
                 duracao_s       = excluded.duracao_s,
                 caminho_arquivo = excluded.caminho_arquivo,
                 atualizado_em   = datetime('now','localtime')
-        """, (yt_id, url, titulo, duracao_s, str(caminho_arquivo)))
+        """,
+            (yt_id, url, titulo, duracao_s, str(caminho_arquivo)),
+        )
         vid_id = conn.execute(
             "SELECT id FROM videos WHERE youtube_id = ?", (yt_id,)
         ).fetchone()["id"]
     return vid_id
 
+
 def marcar_transcrito(video_id: int) -> None:
     with get_conn() as conn:
         conn.execute(
             "UPDATE videos SET transcrito = 1, atualizado_em = datetime('now','localtime') WHERE id = ?",
-            (video_id,)
+            (video_id,),
         )
+
 
 def atualizar_custo(video_id: int, custo_usd: float) -> None:
     # FIX: proteção contra valores negativos
@@ -179,8 +193,9 @@ def atualizar_custo(video_id: int, custo_usd: float) -> None:
     with get_conn() as conn:
         conn.execute(
             "UPDATE videos SET custo_api_usd = custo_api_usd + ?, atualizado_em = datetime('now','localtime') WHERE id = ?",
-            (custo_usd, video_id)
+            (custo_usd, video_id),
         )
+
 
 def listar_videos() -> list[dict]:
     with get_conn() as conn:
@@ -195,58 +210,77 @@ def listar_videos() -> list[dict]:
         """).fetchall()
     return [dict(r) for r in rows]
 
+
 def resetar_video(url_ou_id: str) -> None:
     """Permite reprocessar um vídeo zerando num_cortes."""
     yt_id = extrair_youtube_id(url_ou_id)
     with get_conn() as conn:
         conn.execute(
             "UPDATE videos SET num_cortes = 0, atualizado_em = datetime('now','localtime') WHERE youtube_id = ?",
-            (yt_id,)
+            (yt_id,),
         )
+
 
 # ─── CORTES ───────────────────────────────────────────────
 
-def registrar_corte(video_id: int, numero: int, corte_info: dict,
-                    caminho_video: Path, caminho_txt: Path, desc_info: Optional[dict]) -> int:
+
+def registrar_corte(
+    video_id: int,
+    numero: int,
+    corte_info: dict,
+    caminho_video: Path,
+    caminho_txt: Path,
+    desc_info: Optional[dict],
+) -> int:
     """Registra um corte gerado. Retorna o ID do corte."""
-    hashtags = json.dumps(
-        desc_info.get("hashtags", []), ensure_ascii=False
-    ) if desc_info else "[]"
+    hashtags = (
+        json.dumps(desc_info.get("hashtags", []), ensure_ascii=False)
+        if desc_info
+        else "[]"
+    )
 
     # FIX: proteção contra None em campos float
     inicio = corte_info.get("inicio") or 0.0
-    fim    = corte_info.get("fim")    or 0.0
-    dur    = float(fim) - float(inicio)
+    fim = corte_info.get("fim") or 0.0
+    dur = float(fim) - float(inicio)
 
     with get_conn() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO cortes
                 (video_id, numero, tipo, categoria, titulo, gancho, inicio_s, fim_s, duracao_s,
                  caminho_video, caminho_txt, titulo_yt, descricao, hashtags, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            video_id, numero,
-            corte_info.get("tipo"),
-            corte_info.get("categoria"),
-            corte_info.get("titulo"),
-            corte_info.get("gancho"),
-            float(inicio), float(fim), dur,
-            str(caminho_video) if caminho_video else None,
-            str(caminho_txt)   if caminho_txt   else None,
-            desc_info.get("titulo_yt")  if desc_info else None,
-            desc_info.get("descricao")  if desc_info else None,
-            hashtags,
-            "pronto"
-        ))
+        """,
+            (
+                video_id,
+                numero,
+                corte_info.get("tipo"),
+                corte_info.get("categoria"),
+                corte_info.get("titulo"),
+                corte_info.get("gancho"),
+                float(inicio),
+                float(fim),
+                dur,
+                str(caminho_video) if caminho_video else None,
+                str(caminho_txt) if caminho_txt else None,
+                desc_info.get("titulo_yt") if desc_info else None,
+                desc_info.get("descricao") if desc_info else None,
+                hashtags,
+                "pronto",
+            ),
+        )
         conn.execute(
             "UPDATE videos SET num_cortes = num_cortes + 1, atualizado_em = datetime('now','localtime') WHERE id = ?",
-            (video_id,)
+            (video_id,),
         )
         corte_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     return corte_id
 
-def listar_cortes(video_id: Optional[int] = None,
-                  status: Optional[str] = None) -> list[dict]:
+
+def listar_cortes(
+    video_id: Optional[int] = None, status: Optional[str] = None
+) -> list[dict]:
     # FIX: construção de query parametrizada (evita SQL injection)
     condicoes = ["1=1"]
     params: list = []
@@ -273,8 +307,10 @@ def listar_cortes(video_id: Optional[int] = None,
         rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]
 
-def atualizar_status_corte(corte_id: int, status: str,
-                           youtube_short_id: Optional[str] = None) -> None:
+
+def atualizar_status_corte(
+    corte_id: int, status: str, youtube_short_id: Optional[str] = None
+) -> None:
     # FIX: validar status antes de gravar
     STATUS_VALIDOS = {"pronto", "agendado", "postado", "erro"}
     if status not in STATUS_VALIDOS:
@@ -283,10 +319,11 @@ def atualizar_status_corte(corte_id: int, status: str,
         if youtube_short_id:
             conn.execute(
                 "UPDATE cortes SET status=?, youtube_short_id=?, postado_em=datetime('now','localtime') WHERE id=?",
-                (status, youtube_short_id, corte_id)
+                (status, youtube_short_id, corte_id),
             )
         else:
             conn.execute("UPDATE cortes SET status=? WHERE id=?", (status, corte_id))
+
 
 def agendar_corte(corte_id: int, data_hora_iso: str) -> None:
     """Agenda um corte (formato: 'AAAA-MM-DD HH:MM:SS')."""
@@ -295,12 +332,15 @@ def agendar_corte(corte_id: int, data_hora_iso: str) -> None:
     try:
         datetime.strptime(data_hora_iso[:19], "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        raise ValueError(f"Formato de data inválido: '{data_hora_iso}'. Use 'AAAA-MM-DD HH:MM:SS'")
+        raise ValueError(
+            f"Formato de data inválido: '{data_hora_iso}'. Use 'AAAA-MM-DD HH:MM:SS'"
+        )
     with get_conn() as conn:
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-            (data_hora_iso, corte_id)
+            (data_hora_iso, corte_id),
         )
+
 
 def limpar_agendamentos() -> int:
     """
@@ -320,6 +360,7 @@ def limpar_agendamentos() -> int:
 
         return cur.rowcount
 
+
 def cortes_pendentes_agendamento() -> list[dict]:
     """Retorna cortes agendados cuja hora já passou."""
     with get_conn() as conn:
@@ -333,7 +374,9 @@ def cortes_pendentes_agendamento() -> list[dict]:
         """).fetchall()
     return [dict(r) for r in rows]
 
+
 # ─── ESTATÍSTICAS ─────────────────────────────────────────
+
 
 def stats() -> dict:
     with get_conn() as conn:
@@ -351,17 +394,20 @@ def stats() -> dict:
         """).fetchone()
     return dict(row)
 
+
 # ─── CLI ─────────────────────────────────────────────────
 
 # ─── DEDUPLICAÇÃO DE TEMAS ──────────────────────────────
+
 
 def registrar_tema_usado(tipo: str, tema: str) -> None:
     """Registra um tema como usado para evitar repetição futura."""
     with get_conn() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO temas_usados (tipo, tema) VALUES (?, ?)",
-            (tipo, tema)
+            (tipo, tema),
         )
+
 
 def temas_ja_usados(tipo: str) -> set[str]:
     """Retorna conjunto de temas já usados para um tipo."""
@@ -370,6 +416,7 @@ def temas_ja_usados(tipo: str) -> set[str]:
             "SELECT tema FROM temas_usados WHERE tipo = ?", (tipo,)
         ).fetchall()
     return {r["tema"] for r in rows}
+
 
 def proximo_tema_disponivel(tipo: str, todos_os_temas: list[str]) -> str:
     """
@@ -390,6 +437,7 @@ def proximo_tema_disponivel(tipo: str, todos_os_temas: list[str]) -> str:
     registrar_tema_usado(tipo, escolhido)
     return escolhido
 
+
 def stats_temas() -> dict:
     """Retorna quantos temas já foram usados por tipo."""
     with get_conn() as conn:
@@ -399,6 +447,7 @@ def stats_temas() -> dict:
             GROUP BY tipo
         """).fetchall()
     return {r["tipo"]: r["total"] for r in rows}
+
 
 def parse_txt(txt_path: Path) -> dict:
     """
@@ -444,8 +493,9 @@ def parse_txt(txt_path: Path) -> dict:
         "descricao": descricao,
         "hashtags": hashtags.split(),
         "formato": formato,
-        "tema": tema
+        "tema": tema,
     }
+
 
 def detectar_tipo(nome: str) -> str:
 
@@ -468,10 +518,12 @@ def detectar_tipo(nome: str) -> str:
 
     return "denso"
 
+
 def obter_duracao_video(video: Path) -> float:
     """Obtém duração do vídeo usando ffprobe."""
     try:
         from config import cfg
+
         resultado = subprocess.run(
             [
                 "ffprobe",
@@ -485,14 +537,15 @@ def obter_duracao_video(video: Path) -> float:
             ],
             capture_output=True,
             text=True,
-            timeout=cfg.timeout_ffprobe
+            timeout=cfg.timeout_ffprobe,
         )
 
         return float(resultado.stdout.strip())
 
     except Exception:
         return 0.0
-    
+
+
 def importar_video(video_path: Path) -> bool:
 
     txt = video_path.with_suffix(".txt")
@@ -506,8 +559,7 @@ def importar_video(video_path: Path) -> bool:
     with get_conn() as conn:
 
         existe = conn.execute(
-            "SELECT id FROM videos WHERE youtube_id=?",
-            (youtube_id,)
+            "SELECT id FROM videos WHERE youtube_id=?", (youtube_id,)
         ).fetchone()
 
     if existe:
@@ -522,7 +574,7 @@ def importar_video(video_path: Path) -> bool:
         url=youtube_id,
         titulo=info["titulo"],
         duracao_s=duracao,
-        caminho_arquivo=video_path
+        caminho_arquivo=video_path,
     )
 
     registrar_corte(
@@ -534,20 +586,21 @@ def importar_video(video_path: Path) -> bool:
             "titulo": info["titulo"],
             "gancho": "",
             "inicio": 0,
-            "fim": duracao
+            "fim": duracao,
         },
         caminho_video=video_path,
         caminho_txt=txt,
         desc_info={
             "titulo_yt": info["titulo"],
             "descricao": info["descricao"],
-            "hashtags": info["hashtags"]
-        }
+            "hashtags": info["hashtags"],
+        },
     )
 
     logger.info("Importado: %s", video_path.name)
 
     return True
+
 
 def importar_output() -> None:
 
@@ -573,7 +626,7 @@ def importar_output() -> None:
             else:
                 ignorados += 1
 
-        except Exception as e:
+        except Exception:
 
             logger.exception("Erro importando %s", video.name)
 
@@ -582,16 +635,22 @@ def importar_output() -> None:
     print(f"Ignorados  : {ignorados}")
     print("==============================")
 
+
 def _print_videos(videos: list[dict]) -> None:
     if not videos:
         print("  Nenhum vídeo registrado.")
         return
-    print(f"\n  {'ID':>4}  {'YouTube ID':>13}  {'Cortes':>6}  {'Postados':>8}  {'Custo':>8}  Título")
+    print(
+        f"\n  {'ID':>4}  {'YouTube ID':>13}  {'Cortes':>6}  {'Postados':>8}  {'Custo':>8}  Título"
+    )
     print("  " + "─" * 76)
     for v in videos:
         custo = f"${v['custo_api_usd']:.3f}" if v.get("custo_api_usd") else "$0.000"
-        print(f"  {v['id']:>4}  {v['youtube_id']:>13}  {v['num_cortes']:>6}  "
-              f"{v.get('postados') or 0:>8}  {custo:>8}  {(v['titulo'] or '')[:38]}")
+        print(
+            f"  {v['id']:>4}  {v['youtube_id']:>13}  {v['num_cortes']:>6}  "
+            f"{v.get('postados') or 0:>8}  {custo:>8}  {(v['titulo'] or '')[:38]}"
+        )
+
 
 def _print_cortes(cortes: list[dict]) -> None:
     if not cortes:
@@ -601,20 +660,30 @@ def _print_cortes(cortes: list[dict]) -> None:
     print("  " + "─" * 72)
     for c in cortes:
         dur = f"{c['duracao_s']:.0f}s" if c.get("duracao_s") else "—"
-        print(f"  {c['id']:>4}  {c.get('numero') or 0:>3}  {c.get('tipo') or '—':>8}  "
-              f"{dur:>5}  {c['status']:>9}  {(c.get('titulo') or '')[:33]}")
+        print(
+            f"  {c['id']:>4}  {c.get('numero') or 0:>3}  {c.get('tipo') or '—':>8}  "
+            f"{dur:>5}  {c['status']:>9}  {(c.get('titulo') or '')[:33]}"
+        )
+
 
 def main_cli() -> None:
     inicializar()
     parser = argparse.ArgumentParser(description="Banco de vídeos — controle de Shorts")
-    parser.add_argument("--listar",         action="store_true")
-    parser.add_argument("--listar-cortes",  metavar="VIDEO_ID")
+    parser.add_argument("--listar", action="store_true")
+    parser.add_argument("--listar-cortes", metavar="VIDEO_ID")
     parser.add_argument("--listar-prontos", action="store_true")
-    parser.add_argument("--stats",          action="store_true")
-    parser.add_argument("--resetar",        metavar="URL_OU_ID")
-    parser.add_argument("--temas",          action="store_true",
-                        help="Mostra quantos temas já foram usados por tipo")
-    parser.add_argument("--importar-output",action="store_true",help="Importa vídeos existentes da pasta output para o banco.")
+    parser.add_argument("--stats", action="store_true")
+    parser.add_argument("--resetar", metavar="URL_OU_ID")
+    parser.add_argument(
+        "--temas",
+        action="store_true",
+        help="Mostra quantos temas já foram usados por tipo",
+    )
+    parser.add_argument(
+        "--importar-output",
+        action="store_true",
+        help="Importa vídeos existentes da pasta output para o banco.",
+    )
     args = parser.parse_args()
 
     if args.listar:
@@ -639,7 +708,9 @@ def main_cli() -> None:
         print(f"   Agendados          : {s['agendados']}")
         print(f"   Postados           : {s['postados']}")
         print(f"   Com erro           : {s['erros']}")
-        print(f"   Custo total API    : ${s['custo_total_usd']:.4f} (~R${custo_brl:.2f})")
+        print(
+            f"   Custo total API    : ${s['custo_total_usd']:.4f} (~R${custo_brl:.2f})"
+        )
 
     elif args.resetar:
         resetar_video(args.resetar)
@@ -659,6 +730,7 @@ def main_cli() -> None:
 
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main_cli()

@@ -27,16 +27,14 @@
 =======================================================
 """
 
-import json
-import logging
-import os
-import sys
-import time
 import argparse
 import hashlib
+import logging
+import os
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 import requests
 
@@ -45,24 +43,25 @@ logger = logging.getLogger(__name__)
 # ── Carregar .env ──────────────────────────────────────
 try:
     from dotenv import load_dotenv
+
     load_dotenv(override=False)
 except ImportError:
     pass
 
 # ── Configurações ──────────────────────────────────────
-PEXELS_API_KEY  = os.getenv("PEXELS_API_KEY",  "")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "")
 
-PASTA_FUNDOS  = Path("fundos")
+PASTA_FUNDOS = Path("fundos")
 PASTA_MUSICAS = Path("musicas")
-PASTA_CACHE   = Path(".cache_fundos")   # evita baixar o mesmo arquivo 2x
+PASTA_CACHE = Path(".cache_fundos")  # evita baixar o mesmo arquivo 2x
 
 # Mínimo de arquivos por categoria (garante variedade)
 MIN_VIDEOS_POR_TEMA = 3
-MIN_MUSICAS_TOTAL   = 8
+MIN_MUSICAS_TOTAL = 8
 
 # Qualidade de vídeo alvo (pixels de altura)
-QUALIDADE_VIDEO = 1080   # Full HD é suficiente — 4K seria grande demais
+QUALIDADE_VIDEO = 1080  # Full HD é suficiente — 4K seria grande demais
 
 # Tempo máximo de vídeo de fundo (segundos)
 DURACAO_MAX_FUNDO = 120
@@ -70,34 +69,50 @@ DURACAO_MAX_FUNDO = 120
 # ── Temas de vídeo por formato de conteúdo ────────────
 TEMAS_FUNDO = {
     "ceu": {
-        "queries_pexels":  ["sky clouds sunrise", "heaven light clouds", "blue sky peaceful"],
+        "queries_pexels": [
+            "sky clouds sunrise",
+            "heaven light clouds",
+            "blue sky peaceful",
+        ],
         "queries_pixabay": ["sky clouds peaceful", "sunrise sky"],
-        "formatos":        ["reflexao", "versiculo"],
+        "formatos": ["reflexao", "versiculo"],
     },
     "natureza": {
-        "queries_pexels":  ["nature peaceful forest", "green nature calm", "waterfall nature"],
+        "queries_pexels": [
+            "nature peaceful forest",
+            "green nature calm",
+            "waterfall nature",
+        ],
         "queries_pixabay": ["nature forest peaceful", "green landscape calm"],
-        "formatos":        ["reflexao", "historia"],
+        "formatos": ["reflexao", "historia"],
     },
     "luz": {
-        "queries_pexels":  ["sunlight rays bokeh", "golden light particles", "light beams divine"],
+        "queries_pexels": [
+            "sunlight rays bokeh",
+            "golden light particles",
+            "light beams divine",
+        ],
         "queries_pixabay": ["sunlight golden bokeh", "light rays peaceful"],
-        "formatos":        ["reflexao", "versiculo", "historia"],
+        "formatos": ["reflexao", "versiculo", "historia"],
     },
     "agua": {
-        "queries_pexels":  ["calm water waves", "ocean waves peaceful", "river flowing calm"],
+        "queries_pexels": [
+            "calm water waves",
+            "ocean waves peaceful",
+            "river flowing calm",
+        ],
         "queries_pixabay": ["calm water ripple", "ocean peaceful"],
-        "formatos":        ["reflexao"],
+        "formatos": ["reflexao"],
     },
     "montanha": {
-        "queries_pexels":  ["mountain landscape majestic", "mountain sunrise mist"],
+        "queries_pexels": ["mountain landscape majestic", "mountain sunrise mist"],
         "queries_pixabay": ["mountain landscape peaceful"],
-        "formatos":        ["historia"],
+        "formatos": ["historia"],
     },
     "cidade_noite": {
-        "queries_pexels":  ["city night lights bokeh", "night sky stars"],
+        "queries_pexels": ["city night lights bokeh", "night sky stars"],
         "queries_pixabay": ["night city bokeh peaceful"],
-        "formatos":        ["reflexao"],
+        "formatos": ["reflexao"],
     },
 }
 
@@ -113,17 +128,20 @@ QUERIES_MUSICA = [
     "church organ instrumental",
 ]
 
-EXTENSOES_VIDEO  = {".mp4", ".mov", ".webm"}
+EXTENSOES_VIDEO = {".mp4", ".mov", ".webm"}
 EXTENSOES_MUSICA = {".mp3", ".wav", ".ogg", ".m4a"}
 
 
 def log(msg: str, nivel: str = "INFO") -> None:
-    hora  = datetime.now().strftime("%H:%M:%S")
-    icons = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","DL":"⬇"}
+    hora = datetime.now().strftime("%H:%M:%S")
+    icons = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→", "DL": "⬇"}
     print(f"[{hora}] {icons.get(nivel,'·')} {msg}")
-    if nivel == "ERRO":    logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
 
 
 def _hash_url(url: str) -> str:
@@ -148,8 +166,7 @@ def _marcar_baixado(url: str) -> None:
     (PASTA_CACHE / _hash_url(url)).write_text(url)
 
 
-def _baixar_arquivo(url: str, destino: Path,
-                    nome_exibicao: str = "") -> bool:
+def _baixar_arquivo(url: str, destino: Path, nome_exibicao: str = "") -> bool:
     """
     Baixa um arquivo com barra de progresso simples.
     Retorna True se bem-sucedido.
@@ -159,8 +176,9 @@ def _baixar_arquivo(url: str, destino: Path,
         return True
 
     try:
-        resp = requests.get(url, stream=True, timeout=60,
-                            headers={"User-Agent": "BoomVibes/1.0"})
+        resp = requests.get(
+            url, stream=True, timeout=60, headers={"User-Agent": "BoomVibes/1.0"}
+        )
         resp.raise_for_status()
 
         total = int(resp.headers.get("content-length", 0))
@@ -183,15 +201,18 @@ def _baixar_arquivo(url: str, destino: Path,
 
     except requests.exceptions.Timeout:
         log(f"Timeout ao baixar: {nome_exibicao}", "AVISO")
-        if destino.exists(): destino.unlink()
+        if destino.exists():
+            destino.unlink()
         return False
     except Exception as e:
         log(f"Erro ao baixar {nome_exibicao}: {e}", "ERRO")
-        if destino.exists(): destino.unlink()
+        if destino.exists():
+            destino.unlink()
         return False
 
 
 # ── PEXELS — Vídeos ────────────────────────────────────
+
 
 def _buscar_pexels(query: str, por_pagina: int = 10) -> list[dict]:
     """Busca vídeos no Pexels API."""
@@ -203,11 +224,11 @@ def _buscar_pexels(query: str, por_pagina: int = 10) -> list[dict]:
             "https://api.pexels.com/videos/search",
             headers={"Authorization": PEXELS_API_KEY},
             params={
-                "query":    query,
+                "query": query,
                 "per_page": por_pagina,
-                "size":     "medium",   # small | medium | large
+                "size": "medium",  # small | medium | large
             },
-            timeout=15
+            timeout=15,
         )
         resp.raise_for_status()
         return resp.json().get("videos", [])
@@ -229,11 +250,11 @@ def _melhor_arquivo_pexels(video: dict) -> Optional[dict]:
     def prioridade(f):
         h = f.get("height", 0)
         if h == QUALIDADE_VIDEO:
-            return 0   # perfeito
+            return 0  # perfeito
         elif h > QUALIDADE_VIDEO:
-            return 2   # 4K — aceita mas não é ideal
+            return 2  # 4K — aceita mas não é ideal
         else:
-            return 1   # abaixo de 1080p
+            return 1  # abaixo de 1080p
 
     arquivos_mp4 = [f for f in arquivos if f.get("file_type") == "video/mp4"]
     if not arquivos_mp4:
@@ -242,8 +263,9 @@ def _melhor_arquivo_pexels(video: dict) -> Optional[dict]:
     return min(arquivos_mp4, key=prioridade)
 
 
-def baixar_videos_pexels(tema: str, queries: list[str],
-                          quantidade: int = MIN_VIDEOS_POR_TEMA) -> int:
+def baixar_videos_pexels(
+    tema: str, queries: list[str], quantidade: int = MIN_VIDEOS_POR_TEMA
+) -> int:
     """
     Baixa vídeos de fundo do Pexels para um tema.
     Retorna número de vídeos baixados.
@@ -282,8 +304,8 @@ def baixar_videos_pexels(tema: str, queries: list[str],
                 continue
 
             vid_id = video.get("id", baixados)
-            nome   = f"{tema}_{vid_id}.mp4"
-            dest   = pasta_tema / nome
+            nome = f"{tema}_{vid_id}.mp4"
+            dest = pasta_tema / nome
 
             if dest.exists():
                 continue
@@ -299,6 +321,7 @@ def baixar_videos_pexels(tema: str, queries: list[str],
 
 # ── PIXABAY — Músicas ──────────────────────────────────
 
+
 def _buscar_pixabay_musica(query: str, por_pagina: int = 10) -> list[dict]:
     """Busca músicas no Pixabay API."""
     if not PIXABAY_API_KEY:
@@ -308,12 +331,12 @@ def _buscar_pixabay_musica(query: str, por_pagina: int = 10) -> list[dict]:
         resp = requests.get(
             "https://pixabay.com/music/",
             params={
-                "key":      PIXABAY_API_KEY,
-                "q":        query,
+                "key": PIXABAY_API_KEY,
+                "q": query,
                 "per_page": por_pagina,
                 "category": "ambient",
             },
-            timeout=15
+            timeout=15,
         )
         resp.raise_for_status()
         return resp.json().get("hits", [])
@@ -334,7 +357,7 @@ def baixar_musicas_pixabay(quantidade: int = MIN_MUSICAS_TOTAL) -> int:
         log(f"Músicas: já tem {ja_tem} — pulando")
         return 0
 
-    precisa  = quantidade - ja_tem
+    precisa = quantidade - ja_tem
     baixados = 0
 
     for query in QUERIES_MUSICA:
@@ -425,19 +448,22 @@ def baixar_fallback() -> dict:
 
 # ── PIPELINE PRINCIPAL ─────────────────────────────────
 
-def baixar_tudo(apenas_videos: bool = False,
-                apenas_musicas: bool = False,
-                tema_especifico: Optional[str] = None) -> dict:
+
+def baixar_tudo(
+    apenas_videos: bool = False,
+    apenas_musicas: bool = False,
+    tema_especifico: Optional[str] = None,
+) -> dict:
     """Pipeline completo de download de fundos e músicas."""
 
     resultado = {"videos": 0, "musicas": 0, "erros": 0}
 
-    tem_pexels  = bool(PEXELS_API_KEY)
+    tem_pexels = bool(PEXELS_API_KEY)
     tem_pixabay = bool(PIXABAY_API_KEY)
 
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print("  DOWNLOAD DE FUNDOS E MÚSICAS")
-    print("═"*55)
+    print("═" * 55)
     print(f"\n  Pexels  : {'✅ configurado' if tem_pexels  else '⚠️  sem API key'}")
     print(f"  Pixabay : {'✅ configurado' if tem_pixabay else '⚠️  sem API key'}")
     print()
@@ -446,7 +472,7 @@ def baixar_tudo(apenas_videos: bool = False,
     if not tem_pexels and not tem_pixabay:
         log("Nenhuma API key configurada — baixando assets CC0 embutidos", "AVISO")
         r = baixar_fallback()
-        resultado["videos"]  += r["videos"]
+        resultado["videos"] += r["videos"]
         resultado["musicas"] += r["musicas"]
         _imprimir_resumo(resultado)
         return resultado
@@ -481,12 +507,14 @@ def baixar_tudo(apenas_videos: bool = False,
                     pasta.mkdir(parents=True, exist_ok=True)
                     for i, url in enumerate(FUNDOS_CC0[tema]):
                         dest = pasta / f"{tema}_cc0_{i+1}.mp4"
-                        if not dest.exists() and _baixar_arquivo(url, dest, f"{tema}_cc0_{i+1}"):
+                        if not dest.exists() and _baixar_arquivo(
+                            url, dest, f"{tema}_cc0_{i+1}"
+                        ):
                             resultado["videos"] += 1
 
     # Download de músicas
     if not apenas_videos:
-        print(f"\n🎵 Baixando músicas instrumentais...\n")
+        print("\n🎵 Baixando músicas instrumentais...\n")
         if tem_pixabay:
             try:
                 n = baixar_musicas_pixabay(quantidade=MIN_MUSICAS_TOTAL)
@@ -507,19 +535,19 @@ def baixar_tudo(apenas_videos: bool = False,
 
 
 def _imprimir_resumo(resultado: dict) -> None:
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print(f"  ✅ Vídeos baixados : {resultado['videos']}")
     print(f"  ✅ Músicas baixadas: {resultado['musicas']}")
     if resultado["erros"]:
         print(f"  ⚠️  Erros          : {resultado['erros']}")
-    print("═"*55 + "\n")
+    print("═" * 55 + "\n")
 
 
 def mostrar_status() -> None:
     """Mostra o que já tem nas pastas fundos/ e musicas/."""
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print("  STATUS DOS ASSETS")
-    print("═"*55)
+    print("═" * 55)
 
     # Vídeos
     print("\n📹 Vídeos de fundo:\n")
@@ -538,9 +566,11 @@ def mostrar_status() -> None:
     print("\n🎵 Músicas instrumentais:\n")
     total_musicas = 0
     if PASTA_MUSICAS.exists():
-        musicas = (list(PASTA_MUSICAS.glob("*.mp3")) +
-                   list(PASTA_MUSICAS.glob("*.wav")) +
-                   list(PASTA_MUSICAS.glob("*.m4a")))
+        musicas = (
+            list(PASTA_MUSICAS.glob("*.mp3"))
+            + list(PASTA_MUSICAS.glob("*.wav"))
+            + list(PASTA_MUSICAS.glob("*.m4a"))
+        )
         total_musicas = len(musicas)
         status = "✅" if total_musicas >= MIN_MUSICAS_TOTAL else "⚠️ "
         print(f"  {status} musicas/  {total_musicas} arquivo(s)")
@@ -563,14 +593,12 @@ def garantir_minimo() -> None:
     Garante o mínimo de assets para o sistema funcionar.
     Chamado automaticamente pelo run_diario.py se necessário.
     """
-    videos_ok  = False
+    videos_ok = False
     musicas_ok = False
 
     if PASTA_FUNDOS.exists():
         total = sum(
-            len(list(d.glob("*.mp4")))
-            for d in PASTA_FUNDOS.iterdir()
-            if d.is_dir()
+            len(list(d.glob("*.mp4"))) for d in PASTA_FUNDOS.iterdir() if d.is_dir()
         )
         videos_ok = total >= 3  # mínimo absoluto
 
@@ -588,27 +616,37 @@ def garantir_minimo() -> None:
 
 # ── CLI ────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Download automático de fundos e músicas"
     )
-    parser.add_argument("--videos",  action="store_true",
-                        help="Baixar apenas vídeos de fundo")
-    parser.add_argument("--musicas", action="store_true",
-                        help="Baixar apenas músicas instrumentais")
-    parser.add_argument("--tema",    metavar="TEMA",
-                        help=f"Baixar vídeos de um tema específico: {', '.join(TEMAS_FUNDO)}")
-    parser.add_argument("--status",  action="store_true",
-                        help="Mostrar o que já foi baixado")
-    parser.add_argument("--minimo",  action="store_true",
-                        help="Garantir mínimo de assets (chamado automaticamente)")
-    parser.add_argument("--temas",   action="store_true",
-                        help="Listar temas disponíveis")
+    parser.add_argument(
+        "--videos", action="store_true", help="Baixar apenas vídeos de fundo"
+    )
+    parser.add_argument(
+        "--musicas", action="store_true", help="Baixar apenas músicas instrumentais"
+    )
+    parser.add_argument(
+        "--tema",
+        metavar="TEMA",
+        help=f"Baixar vídeos de um tema específico: {', '.join(TEMAS_FUNDO)}",
+    )
+    parser.add_argument(
+        "--status", action="store_true", help="Mostrar o que já foi baixado"
+    )
+    parser.add_argument(
+        "--minimo",
+        action="store_true",
+        help="Garantir mínimo de assets (chamado automaticamente)",
+    )
+    parser.add_argument("--temas", action="store_true", help="Listar temas disponíveis")
     args = parser.parse_args()
 
     # Setup logging
     try:
         from logger_setup import get_logger
+
         get_logger(__name__)
     except Exception:
         logging.basicConfig(level=logging.WARNING)

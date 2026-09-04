@@ -2,11 +2,12 @@
 Testes do Agendador - Sistema de postagem automática.
 Valida lógica de agendamento, execução e recuperação de erros.
 """
-import pytest
-from pathlib import Path
+
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock, call
-import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 
 @pytest.mark.unit
@@ -26,10 +27,10 @@ class TestAgendamento:
 
         # Atualizar data de agendamento
         import sqlite3
+
         conn = sqlite3.connect(banco_populado["banco_path"])
         conn.execute(
-            "UPDATE cortes SET agendado_para=? WHERE id=?",
-            (data_str, corte_id)
+            "UPDATE cortes SET agendado_para=? WHERE id=?", (data_str, corte_id)
         )
         conn.commit()
         conn.close()
@@ -41,7 +42,6 @@ class TestAgendamento:
 
     def test_listar_agendados_ordem_cronologica(self, banco_populado):
         """Cortes agendados devem vir em ordem cronológica."""
-        import banco
         import sqlite3
 
         corte1_id = banco_populado["corte1_id"]
@@ -55,11 +55,11 @@ class TestAgendamento:
 
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-            (data1, corte1_id)
+            (data1, corte1_id),
         )
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-            (data2, corte2_id)
+            (data2, corte2_id),
         )
         conn.commit()
 
@@ -76,19 +76,21 @@ class TestAgendamento:
 
     def test_agendamento_passado_ignora(self, banco_populado):
         """Horários no passado não devem ser executados."""
-        import banco
         import sqlite3
+
         from agendador import verificar_agendamentos
 
         corte_id = banco_populado["corte1_id"]
 
         # Agendar para o passado
-        data_passada = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        data_passada = (datetime.now() - timedelta(hours=1)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
         conn = sqlite3.connect(banco_populado["banco_path"])
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-            (data_passada, corte_id)
+            (data_passada, corte_id),
         )
         conn.commit()
         conn.close()
@@ -156,9 +158,8 @@ class TestRecuperacaoErros:
 
     def test_data_malformada_resetada(self, banco_populado):
         """Datas malformadas devem ser corrigidas."""
-        import banco
-        import sqlite3
         import logging
+        import sqlite3
         from io import StringIO
 
         corte_id = banco_populado["corte1_id"]
@@ -167,7 +168,7 @@ class TestRecuperacaoErros:
         conn = sqlite3.connect(banco_populado["banco_path"])
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para='invalid_date' WHERE id=?",
-            (corte_id,)
+            (corte_id,),
         )
         conn.commit()
         conn.close()
@@ -191,7 +192,11 @@ class TestRecuperacaoErros:
         # Verificar que erro foi logado
         log_output = log_stream.getvalue()
         # Deve conter mensagem sobre data malformada
-        assert "malformado" in log_output.lower() or "erro" in log_output.lower() or log_output == ""
+        assert (
+            "malformado" in log_output.lower()
+            or "erro" in log_output.lower()
+            or log_output == ""
+        )
 
         logger.removeHandler(handler)
 
@@ -226,8 +231,8 @@ class TestFluxoCompleto:
     @patch("agendador.excluir_video_local")
     def test_fluxo_agendar_e_postar(self, mock_excluir, mock_postar, banco_populado):
         """Fluxo completo: agendar -> verificar -> postar."""
-        import banco
         import sqlite3
+
         from agendador import verificar_agendamentos
 
         corte_id = banco_populado["corte1_id"]
@@ -238,7 +243,7 @@ class TestFluxoCompleto:
         conn = sqlite3.connect(banco_populado["banco_path"])
         conn.execute(
             "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-            (data_agora, corte_id)
+            (data_agora, corte_id),
         )
         conn.commit()
         conn.close()
@@ -249,7 +254,7 @@ class TestFluxoCompleto:
         # 3. Verificar agendamentos
         try:
             verificar_agendamentos()
-        except Exception as e:
+        except Exception:
             # Pode falhar por falta de configuração, mas não deve crashar
             pass
 
@@ -269,7 +274,7 @@ class TestFluxoCompleto:
                 url=f"https://youtube.com/watch?v=test{i}",
                 titulo=f"Vídeo {i}",
                 duracao_s=180.0,
-                caminho_arquivo=Path(f"/tmp/video{i}.mp4")
+                caminho_arquivo=Path(f"/tmp/video{i}.mp4"),
             )
             video_ids.append(vid)
 
@@ -282,30 +287,29 @@ class TestFluxoCompleto:
                     "titulo": f"Corte {i}",
                     "gancho": "Gancho",
                     "inicio": 0.0,
-                    "fim": 60.0
+                    "fim": 60.0,
                 },
                 caminho_video=Path(f"/tmp/corte{i}.mp4"),
                 caminho_txt=Path(f"/tmp/corte{i}.txt"),
-                desc_info=None
+                desc_info=None,
             )
             corte_ids.append(corte)
 
         # Agendar todos para o mesmo horário
         import sqlite3
+
         data = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         conn = sqlite3.connect(banco_teste)
         for corte_id in corte_ids:
             conn.execute(
                 "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-                (data, corte_id)
+                (data, corte_id),
             )
         conn.commit()
 
         # Buscar todos agendados
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM cortes WHERE status='agendado'"
-        )
+        cursor = conn.execute("SELECT COUNT(*) FROM cortes WHERE status='agendado'")
         count = cursor.fetchone()[0]
         conn.close()
 
@@ -339,7 +343,9 @@ class TestLimpezaArquivos:
         try:
             excluir_video_local(caminho)
         except FileNotFoundError:
-            pytest.fail("excluir_video_local() não deve crashar com arquivo inexistente")
+            pytest.fail(
+                "excluir_video_local() não deve crashar com arquivo inexistente"
+            )
 
 
 @pytest.mark.unit
@@ -348,34 +354,35 @@ class TestIntervaloPostagens:
 
     def test_intervalo_minimo_respeitado(self, banco_teste):
         """Deve haver intervalo mínimo entre postagens."""
-        import banco
         import sqlite3
         from datetime import datetime, timedelta
+
+        import banco
 
         # Criar 3 cortes
         video_id = banco.registrar_video(
             url="https://youtube.com/watch?v=test",
             titulo="Teste",
             duracao_s=180.0,
-            caminho_arquivo=Path("/tmp/test.mp4")
+            caminho_arquivo=Path("/tmp/test.mp4"),
         )
 
         cortes = []
         for i in range(3):
             corte_id = banco.registrar_corte(
                 video_id=video_id,
-                numero=i+1,
+                numero=i + 1,
                 corte_info={
                     "tipo": "denso",
                     "categoria": "podcast",
                     "titulo": f"Corte {i+1}",
                     "gancho": "Gancho",
-                    "inicio": i*60.0,
-                    "fim": (i+1)*60.0
+                    "inicio": i * 60.0,
+                    "fim": (i + 1) * 60.0,
                 },
                 caminho_video=Path(f"/tmp/corte{i}.mp4"),
                 caminho_txt=Path(f"/tmp/corte{i}.txt"),
-                desc_info=None
+                desc_info=None,
             )
             cortes.append(corte_id)
 
@@ -384,10 +391,10 @@ class TestIntervaloPostagens:
         base_time = datetime.now()
 
         for i, corte_id in enumerate(cortes):
-            data = (base_time + timedelta(hours=i*4)).strftime("%Y-%m-%d %H:%M:%S")
+            data = (base_time + timedelta(hours=i * 4)).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
                 "UPDATE cortes SET status='agendado', agendado_para=? WHERE id=?",
-                (data, corte_id)
+                (data, corte_id),
             )
         conn.commit()
 
@@ -402,7 +409,7 @@ class TestIntervaloPostagens:
         datas_dt = [datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in datas]
 
         for i in range(len(datas_dt) - 1):
-            intervalo = datas_dt[i+1] - datas_dt[i]
+            intervalo = datas_dt[i + 1] - datas_dt[i]
             # Intervalo deve ser de pelo menos 3 horas (tolerância)
             assert intervalo.total_seconds() >= 3 * 3600
 
@@ -415,6 +422,7 @@ class TestMonitoramento:
     def test_log_postagem_sucesso(self, banco_populado, caplog):
         """Postagem bem-sucedida deve ser logada."""
         import logging
+
         from agendador import executar_postagem
 
         caplog.set_level(logging.INFO)
@@ -432,11 +440,14 @@ class TestMonitoramento:
                     pass
 
         # Verificar que algo foi logado
-        assert len(caplog.records) >= 0  # Pode ou não ter logs, dependendo da implementação
+        assert (
+            len(caplog.records) >= 0
+        )  # Pode ou não ter logs, dependendo da implementação
 
     def test_log_erro_capturado(self, banco_populado, caplog):
         """Erros devem ser logados adequadamente."""
         import logging
+
         from agendador import executar_postagem
 
         caplog.set_level(logging.ERROR)

@@ -32,26 +32,37 @@
 =======================================================
 """
 
+import argparse
 import asyncio
-import edge_tts
-import anthropic
-import requests
-import os, sys, json, re, random, shutil, argparse, subprocess, tempfile
-from pathlib import Path
+import json
+import random
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+import anthropic
+import edge_tts
+import requests
+
+import banco
+from config import cfg
+from constantes import CORES_ASS
 from logger_setup import get_logger
 from retry import chamar_anthropic, chamar_elevenlabs
 from telegram import notificar
-from config import cfg
-from constantes import CORES_ASS, TAXA_CAMBIO_USD_BRL
-import banco
+
 try:
     from gtts import gTTS
 except ImportError:
     gTTS = None
 try:
     from analytics import obter_config_otimizada
+
     _config_otimizada = obter_config_otimizada()
 except Exception:
     _config_otimizada = {}
@@ -62,28 +73,29 @@ logger = get_logger(__name__)
 #  CONFIGURAÇÕES — edite em config.py
 # ═══════════════════════════════════════════════════════
 
-CHAVE_ANTHROPIC  = cfg.chave_anthropic
+CHAVE_ANTHROPIC = cfg.chave_anthropic
 CHAVE_ELEVENLABS = cfg.chave_elevenlabs
-MODELO_CLAUDE    = cfg.modelo_claude
-PASTA_FUNDOS     = str(cfg.pasta_fundos)
-PASTA_MUSICAS    = str(cfg.pasta_musicas)
-PASTA_PRONTOS    = str(cfg.pasta_prontos)
+MODELO_CLAUDE = cfg.modelo_claude
+PASTA_FUNDOS = str(cfg.pasta_fundos)
+PASTA_MUSICAS = str(cfg.pasta_musicas)
+PASTA_PRONTOS = str(cfg.pasta_prontos)
 PASTA_AUDIO_TEMP = str(cfg.pasta_audio_temp)
-NOME_CANAL       = cfg.nome_canal
-COR_LEGENDA      = cfg.cor_legenda
-TAMANHO_FONT     = 22
-QUALIDADE_CRF    = cfg.qualidade_crf
-VELOCIDADE_ENC   = cfg.velocidade_enc
-PITCH_VALOR      = cfg.pitch_valor
-DURACAO_REFLEXAO  = cfg.duracao_reflexao
-DURACAO_HISTORIA  = cfg.duracao_historia
+NOME_CANAL = cfg.nome_canal
+COR_LEGENDA = cfg.cor_legenda
+TAMANHO_FONT = 22
+QUALIDADE_CRF = cfg.qualidade_crf
+VELOCIDADE_ENC = cfg.velocidade_enc
+PITCH_VALOR = cfg.pitch_valor
+DURACAO_REFLEXAO = cfg.duracao_reflexao
+DURACAO_HISTORIA = cfg.duracao_historia
 DURACAO_VERSICULO = cfg.duracao_versiculo
-VOLUME_MUSICA     = cfg.volume_musica
+VOLUME_MUSICA = cfg.volume_musica
 VOZ_ELEVENLABS_ID = cfg.voz_elevenlabs_id
-VIDEOS_POR_DIA   = {"reflexao": 4, "historia": 4, "versiculo": 2}
+VIDEOS_POR_DIA = {"reflexao": 4, "historia": 4, "versiculo": 2}
 # ═══════════════════════════════════════════════════════
 
 # CORES_ASS agora vem de constantes.py
+
 
 # Temas rotativos para variar o conteúdo
 def _proximo_tema(tipo: str, lista: list) -> str:
@@ -100,42 +112,79 @@ def _proximo_tema(tipo: str, lista: list) -> str:
 
 
 TEMAS_REFLEXAO = [
-    "fé nos momentos difíceis", "propósito de vida", "gratidão e bênçãos",
-    "superação pelo poder de Deus", "paz interior e ansiedade", "amor ao próximo",
-    "perdão e libertação", "esperança na tribulação", "oração e intimidade com Deus",
-    "cura interior e emocional", "família e proteção divina", "coragem para recomeçar",
-    "confiança em Deus nos planos", "identidade em Cristo", "vitória espiritual",
+    "fé nos momentos difíceis",
+    "propósito de vida",
+    "gratidão e bênçãos",
+    "superação pelo poder de Deus",
+    "paz interior e ansiedade",
+    "amor ao próximo",
+    "perdão e libertação",
+    "esperança na tribulação",
+    "oração e intimidade com Deus",
+    "cura interior e emocional",
+    "família e proteção divina",
+    "coragem para recomeçar",
+    "confiança em Deus nos planos",
+    "identidade em Cristo",
+    "vitória espiritual",
 ]
 
 TEMAS_HISTORIA = [
-    "Davi e Golias", "José no Egito", "Moisés e o Mar Vermelho",
-    "A parábola do filho pródigo", "Pedro caminhando sobre as águas",
-    "A história de Jó", "Santa Teresinha do Menino Jesus",
-    "São Francisco de Assis e os pobres", "A história de Esther",
-    "O milagre das bodas de Caná", "A conversão de Paulo",
-    "São Padre Pio e os milagres", "A história de Rute e Noemi",
-    "Daniel na cova dos leões", "A ressurreição de Lázaro",
-    "Santo Antônio e os milagres", "A história de Abraão e Isaque",
-    "Maria Madalena e a redenção", "São João Bosco e os jovens",
+    "Davi e Golias",
+    "José no Egito",
+    "Moisés e o Mar Vermelho",
+    "A parábola do filho pródigo",
+    "Pedro caminhando sobre as águas",
+    "A história de Jó",
+    "Santa Teresinha do Menino Jesus",
+    "São Francisco de Assis e os pobres",
+    "A história de Esther",
+    "O milagre das bodas de Caná",
+    "A conversão de Paulo",
+    "São Padre Pio e os milagres",
+    "A história de Rute e Noemi",
+    "Daniel na cova dos leões",
+    "A ressurreição de Lázaro",
+    "Santo Antônio e os milagres",
+    "A história de Abraão e Isaque",
+    "Maria Madalena e a redenção",
+    "São João Bosco e os jovens",
     "A história de Gedeão",
 ]
 
 VERSICULOS_TEMA = [
-    "Filipenses 4:13", "Jeremias 29:11", "João 3:16", "Salmos 23",
-    "Romanos 8:28", "Isaías 40:31", "Salmos 46:1", "Mateus 6:33",
-    "Provérbios 3:5-6", "Salmos 121:1-2", "João 14:27", "Romanos 8:37",
-    "Gálatas 2:20", "Efésios 6:10", "Salmos 91:1-2",
+    "Filipenses 4:13",
+    "Jeremias 29:11",
+    "João 3:16",
+    "Salmos 23",
+    "Romanos 8:28",
+    "Isaías 40:31",
+    "Salmos 46:1",
+    "Mateus 6:33",
+    "Provérbios 3:5-6",
+    "Salmos 121:1-2",
+    "João 14:27",
+    "Romanos 8:37",
+    "Gálatas 2:20",
+    "Efésios 6:10",
+    "Salmos 91:1-2",
 ]
+
 
 def log(msg, nivel="INFO"):
     hora = datetime.now().strftime("%H:%M:%S")
-    p = {"INFO":"✓","ERRO":"✗","AVISO":"⚠","PROC":"→","IA":"🤖","DB":"🗄️"}
+    p = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→", "IA": "🤖", "DB": "🗄️"}
     print(f"[{hora}] {p.get(nivel,'·')} {msg}")
-    if nivel == "ERRO":   logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
+
 
 # ─── VERIFICAÇÃO ─────────────────────────────────────────
+
 
 def verificar_deps():
     erros = []
@@ -151,7 +200,8 @@ def verificar_deps():
         sys.exit(1)
     if erros:
         print("\n❌ Dependências faltando:\n")
-        for e in erros: print(f"   • {e}")
+        for e in erros:
+            print(f"   • {e}")
         sys.exit(1)
 
     # Verificar voz disponível
@@ -165,7 +215,9 @@ def verificar_deps():
 
     log("Dependências OK")
 
+
 # ─── ETAPA 1: IA GERA ROTEIRO ────────────────────────────
+
 
 def calcular_palavras_alvo(duracao_min: int, duracao_max: int) -> int:
     """Calcula palavras necessárias para atingir a duração alvo.
@@ -173,7 +225,10 @@ def calcular_palavras_alvo(duracao_min: int, duracao_max: int) -> int:
     media = (duracao_min + duracao_max) / 2
     return int(media / 60 * 130)
 
-def ia_gerar_reflexao(tema: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
+
+def ia_gerar_reflexao(
+    tema: Optional[str] = None, duracao: Optional[tuple] = None
+) -> dict:
     if not tema:
         # Priorizar temas recomendados pela análise de performance
         temas_rec = _config_otimizada.get("temas_recomendados", [])
@@ -187,7 +242,7 @@ def ia_gerar_reflexao(tema: Optional[str] = None, duracao: Optional[tuple] = Non
     log(f"IA gerando reflexão sobre: '{tema}' (~{palavras} palavras)", "IA")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
-    prompt  = f"""Crie uma reflexão espiritual cristã para TikTok/Shorts sobre o tema: "{tema}"
+    prompt = f"""Crie uma reflexão espiritual cristã para TikTok/Shorts sobre o tema: "{tema}"
 
 REQUISITOS:
 - Exatamente {palavras} palavras (±10) — isso é crítico para a duração do vídeo
@@ -204,18 +259,24 @@ Responda SOMENTE com JSON puro:
 
     resposta = chamar_anthropic(
         cliente.messages.create,
-        model=MODELO_CLAUDE, max_tokens=2000,
-        messages=[{"role":"user","content":prompt}]
+        model=MODELO_CLAUDE,
+        max_tokens=2000,
+        messages=[{"role": "user", "content": prompt}],
     )
-    custo = (resposta.usage.input_tokens*3 + resposta.usage.output_tokens*15) / 1_000_000
-    texto = re.sub(r"```json|```","", resposta.content[0].text.strip()).strip()
+    custo = (
+        resposta.usage.input_tokens * 3 + resposta.usage.output_tokens * 15
+    ) / 1_000_000
+    texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"]    = "reflexao"
-    dados["custo_usd"]  = custo
+    dados["formato"] = "reflexao"
+    dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
 
-def ia_gerar_historia(tema: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
+
+def ia_gerar_historia(
+    tema: Optional[str] = None, duracao: Optional[tuple] = None
+) -> dict:
     if not tema:
         temas_rec = _config_otimizada.get("temas_recomendados", [])
         if temas_rec and random.random() < 0.6:
@@ -228,7 +289,7 @@ def ia_gerar_historia(tema: Optional[str] = None, duracao: Optional[tuple] = Non
     log(f"IA gerando história: '{tema}' (~{palavras} palavras)", "IA")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
-    prompt  = f"""Narre a história de "{tema}" para um vídeo TikTok/Shorts de conteúdo religioso.
+    prompt = f"""Narre a história de "{tema}" para um vídeo TikTok/Shorts de conteúdo religioso.
 
 REQUISITOS:
 - Exatamente {palavras} palavras (±10) — crítico para duração do vídeo
@@ -244,18 +305,24 @@ Responda SOMENTE com JSON puro:
 
     resposta = chamar_anthropic(
         cliente.messages.create,
-        model=MODELO_CLAUDE, max_tokens=2000,
-        messages=[{"role":"user","content":prompt}]
+        model=MODELO_CLAUDE,
+        max_tokens=2000,
+        messages=[{"role": "user", "content": prompt}],
     )
-    custo = (resposta.usage.input_tokens*3 + resposta.usage.output_tokens*15) / 1_000_000
-    texto = re.sub(r"```json|```","", resposta.content[0].text.strip()).strip()
+    custo = (
+        resposta.usage.input_tokens * 3 + resposta.usage.output_tokens * 15
+    ) / 1_000_000
+    texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"]      = "historia"
-    dados["custo_usd"]    = custo
+    dados["formato"] = "historia"
+    dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
 
-def ia_gerar_versiculo(versiculo: Optional[str] = None, duracao: Optional[tuple] = None) -> dict:
+
+def ia_gerar_versiculo(
+    versiculo: Optional[str] = None, duracao: Optional[tuple] = None
+) -> dict:
     if not versiculo:
         versiculo = _proximo_tema("versiculo", VERSICULOS_TEMA)
     dur = duracao or DURACAO_VERSICULO
@@ -264,7 +331,7 @@ def ia_gerar_versiculo(versiculo: Optional[str] = None, duracao: Optional[tuple]
     log(f"IA gerando versículo: '{versiculo}' (~{palavras} palavras)", "IA")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
-    prompt  = f"""Crie um vídeo de versículo do dia sobre "{versiculo}" para TikTok/Shorts.
+    prompt = f"""Crie um vídeo de versículo do dia sobre "{versiculo}" para TikTok/Shorts.
 
 REQUISITOS:
 - Exatamente {palavras} palavras (±10) — crítico para duração
@@ -279,48 +346,49 @@ Responda SOMENTE com JSON puro:
 
     resposta = chamar_anthropic(
         cliente.messages.create,
-        model=MODELO_CLAUDE, max_tokens=1500,
-        messages=[{"role":"user","content":prompt}]
+        model=MODELO_CLAUDE,
+        max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}],
     )
-    custo = (resposta.usage.input_tokens*3 + resposta.usage.output_tokens*15) / 1_000_000
-    texto = re.sub(r"```json|```","", resposta.content[0].text.strip()).strip()
+    custo = (
+        resposta.usage.input_tokens * 3 + resposta.usage.output_tokens * 15
+    ) / 1_000_000
+    texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"]      = "versiculo"
-    dados["custo_usd"]    = custo
+    dados["formato"] = "versiculo"
+    dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
 
+
 # ─── ETAPA 2: GERAR ÁUDIO ────────────────────────────────
+
 
 def gerar_audio_elevenlabs(roteiro: str, caminho_saida: Path) -> bool:
     """Voz de alta qualidade — requer ELEVENLABS_API_KEY"""
     log("Gerando voz com ElevenLabs...", "PROC")
 
-    url  = f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVENLABS_ID}"
-    headers = {
-        "xi-api-key":   CHAVE_ELEVENLABS,
-        "Content-Type": "application/json"
-    }
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVENLABS_ID}"
+    headers = {"xi-api-key": CHAVE_ELEVENLABS, "Content-Type": "application/json"}
     body = {
         "text": roteiro,
         "model_id": "eleven_multilingual_v2",
         "voice_settings": {
-            "stability":        0.5,
+            "stability": 0.5,
             "similarity_boost": 0.8,
-            "style":            0.3,
-            "use_speaker_boost": True
-        }
+            "style": 0.3,
+            "use_speaker_boost": True,
+        },
     }
     res = chamar_elevenlabs(requests.post, url, headers=headers, json=body)
     if res.status_code != 200:
-        raise RuntimeError(
-            f"Erro ElevenLabs: {res.text[:200]}"
-        )
+        raise RuntimeError(f"Erro ElevenLabs: {res.text[:200]}")
 
     with open(caminho_saida, "wb") as f:
         f.write(res.content)
     log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
     return True
+
 
 def gerar_audio_gtts(roteiro: str, caminho_saida: Path) -> bool:
     """Voz gratuita — sem necessidade de API key"""
@@ -332,12 +400,9 @@ def gerar_audio_gtts(roteiro: str, caminho_saida: Path) -> bool:
     log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
     return True
 
+
 async def _edge_tts_async(texto: str, caminho_saida: Path) -> None:
-    communicate = edge_tts.Communicate(
-        texto,
-        voice="pt-BR-AntonioNeural",
-        rate="+5%"
-    )
+    communicate = edge_tts.Communicate(texto, voice="pt-BR-AntonioNeural", rate="+5%")
 
     await communicate.save(str(caminho_saida))
 
@@ -347,18 +412,12 @@ def gerar_audio_edge(roteiro: str, caminho_saida: Path) -> bool:
 
     log("Gerando voz com Edge TTS...", "PROC")
 
-    asyncio.run(
-        _edge_tts_async(
-            roteiro,
-            caminho_saida
-        )
-    )
+    asyncio.run(_edge_tts_async(roteiro, caminho_saida))
 
-    log(
-        f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB"
-    )
+    log(f"Áudio gerado: {Path(caminho_saida).stat().st_size/1024:.0f} KB")
 
     return True
+
 
 def gerar_audio(roteiro: str, caminho_saida: Path) -> bool:
     """
@@ -373,52 +432,54 @@ def gerar_audio(roteiro: str, caminho_saida: Path) -> bool:
 
         try:
             log("Tentando ElevenLabs...", "PROC")
-            return gerar_audio_elevenlabs(
-                roteiro,
-                caminho_saida
-            )
+            return gerar_audio_elevenlabs(roteiro, caminho_saida)
 
         except Exception as e:
-            log(
-                f"ElevenLabs indisponível ({e})",
-                "AVISO"
-            )
+            log(f"ElevenLabs indisponível ({e})", "AVISO")
 
     try:
         log("Alternando para Edge TTS...", "PROC")
-        return gerar_audio_edge(
-            roteiro,
-            caminho_saida
-        )
+        return gerar_audio_edge(roteiro, caminho_saida)
 
     except Exception as e:
-        log(
-            f"Edge TTS falhou ({e})",
-            "AVISO"
-        )
+        log(f"Edge TTS falhou ({e})", "AVISO")
 
     log("Alternando para gTTS...", "PROC")
 
-    return gerar_audio_gtts(
-        roteiro,
-        caminho_saida
-    )
+    return gerar_audio_gtts(roteiro, caminho_saida)
 
 
 def obter_duracao_audio(caminho: Path) -> float:
-    cmd = ["ffprobe","-v","quiet","-show_entries","format=duration",
-           "-of","json", str(caminho)]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffprobe)
+    cmd = [
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        str(caminho),
+    ]
+    res = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=cfg.timeout_ffprobe,
+    )
     try:
         return float(json.loads(res.stdout)["format"]["duration"])
     except Exception:
         return 0.0
 
+
 # ─── ETAPA 3: GERAR LEGENDA ASS ──────────────────────────
+
 
 def roteiro_para_ass(roteiro: str, duracao_audio: float, caminho_saida: Path) -> None:
     """Gera legenda ASS sincronizada estimando tempo por palavra"""
-    cor    = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
+    cor = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -432,47 +493,58 @@ Style: Default,Arial,{TAMANHO_FONT},{cor},&H000000FF,&H00000000,&H80000000,-1,0,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
     def t2ass(s: float) -> str:
-        h=int(s//3600); m=int((s%3600)//60); sc=s%60
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sc = s % 60
         return f"{h}:{m:02d}:{sc:05.2f}"
 
     # Quebrar em frases curtas para legenda
-    frases = re.split(r'(?<=[.!?,;])\s+', roteiro.strip())
+    frases = re.split(r"(?<=[.!?,;])\s+", roteiro.strip())
     frases = [f.strip() for f in frases if f.strip()]
 
     palavras_total = sum(len(f.split()) for f in frases)
     seg_por_palavra = duracao_audio / max(palavras_total, 1)
 
-    linhas  = [header]
+    linhas = [header]
     t_atual = 0.2  # pequeno delay inicial
 
     for frase in frases:
         palavras_frase = len(frase.split())
-        duracao_frase  = palavras_frase * seg_por_palavra
+        duracao_frase = palavras_frase * seg_por_palavra
 
         # Quebrar frases longas em 2 linhas
         if len(frase) > 45:
-            meio = len(frase)//2
-            esp  = frase.rfind(" ", 0, meio)
+            meio = len(frase) // 2
+            esp = frase.rfind(" ", 0, meio)
             if esp > 0:
-                frase = frase[:esp] + r"\N" + frase[esp+1:]
+                frase = frase[:esp] + r"\N" + frase[esp + 1 :]
 
         t_fim = min(t_atual + duracao_frase, duracao_audio - 0.1)
-        linhas.append(f"Dialogue: 0,{t2ass(t_atual)},{t2ass(t_fim)},Default,,0,0,0,,{frase}")
+        linhas.append(
+            f"Dialogue: 0,{t2ass(t_atual)},{t2ass(t_fim)},Default,,0,0,0,,{frase}"
+        )
         t_atual = t_fim + 0.05
 
     with open(caminho_saida, "w", encoding="utf-8") as f:
         f.write("\n".join(linhas))
 
+
 # ─── ETAPA 4: MONTAR VÍDEO ───────────────────────────────
+
 
 def obter_fundo_aleatorio() -> Optional[Path]:
     """Retorna um vídeo de fundo aleatório da pasta fundos/ ou subpastas."""
     pasta = Path(PASTA_FUNDOS)
     if pasta.exists():
         # Buscar na raiz E em subpastas (fundos/ceu/, fundos/natureza/, etc.)
-        videos = (list(pasta.glob("*.mp4"))   + list(pasta.glob("*.mov")) +
-                  list(pasta.glob("**/*.mp4")) + list(pasta.glob("**/*.mov")))
+        videos = (
+            list(pasta.glob("*.mp4"))
+            + list(pasta.glob("*.mov"))
+            + list(pasta.glob("**/*.mp4"))
+            + list(pasta.glob("**/*.mov"))
+        )
         # Remover duplicatas mantendo ordem aleatória
         videos = list(dict.fromkeys(videos))
         if videos:
@@ -481,14 +553,20 @@ def obter_fundo_aleatorio() -> Optional[Path]:
     # Sem fundo disponível — gera fundo preto
     return None
 
+
 def obter_musica_aleatoria() -> Optional[Path]:
     """Retorna uma música instrumental aleatória"""
     pasta = Path(PASTA_MUSICAS)
     if pasta.exists():
-        musicas = list(pasta.glob("*.mp3")) + list(pasta.glob("*.wav")) + list(pasta.glob("*.m4a"))
+        musicas = (
+            list(pasta.glob("*.mp3"))
+            + list(pasta.glob("*.wav"))
+            + list(pasta.glob("*.m4a"))
+        )
         if musicas:
             return random.choice(musicas)
     return None
+
 
 def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) -> tuple:
     """Monta o vídeo final com fundo + áudio + legenda + logo"""
@@ -502,39 +580,39 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
 
     log(f"Duração do áudio: {duracao:.1f}s", "PROC")
 
-    ts        = datetime.now().strftime("%H%M%S")
-    fmt       = dados_roteiro.get("formato","video")
+    ts = datetime.now().strftime("%H%M%S")
+    fmt = dados_roteiro.get("formato", "video")
     nome_base = f"{fmt}_{ts}"
     saida_mp4 = pasta_saida / f"{nome_base}.mp4"
     saida_txt = pasta_saida / f"{nome_base}.txt"
 
-    fundo   = obter_fundo_aleatorio()
-    musica  = obter_musica_aleatoria()
+    fundo = obter_fundo_aleatorio()
+    musica = obter_musica_aleatoria()
 
     with tempfile.TemporaryDirectory() as tmp:
-        tmp      = Path(tmp)
+        tmp = Path(tmp)
         ass_path = tmp / "legenda.ass"
         roteiro_para_ass(dados_roteiro["roteiro"], duracao, ass_path)
 
-        ass_esc  = str(ass_path).replace("\\","/").replace(":","\\:")
-        nome_esc = NOME_CANAL.replace("@","\\@")
+        ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:")
+        nome_esc = NOME_CANAL.replace("@", "\\@")
 
         # ── Montar inputs ────────────────────────────────
         inputs = []
 
         if fundo:
             # Loop do vídeo de fundo se for mais curto que o áudio
-            inputs += ["-stream_loop","-1","-i",str(fundo)]
+            inputs += ["-stream_loop", "-1", "-i", str(fundo)]
             log(f"Fundo: {fundo.name}", "PROC")
         else:
             # Fundo preto gerado
-            inputs += ["-f","lavfi","-i",f"color=c=black:s=1080x1920:r=30"]
+            inputs += ["-f", "lavfi", "-i", "color=c=black:s=1080x1920:r=30"]
             log("Fundo: preto (coloque vídeos em fundos/)", "AVISO")
 
         inputs += ["-i", str(caminho_audio)]
 
         if musica:
-            inputs += ["-stream_loop","-1","-i",str(musica)]
+            inputs += ["-stream_loop", "-1", "-i", str(musica)]
             log(f"Música: {musica.name}", "PROC")
 
         # ── Filtros de vídeo ─────────────────────────────
@@ -561,35 +639,66 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
 
         # ── Comando FFmpeg ───────────────────────────────
         cmd = (
-            ["ffmpeg","-y"] +
-            inputs +
-            ["-t", str(duracao + 0.5)] +  # duração exata do áudio + buffer
-            ["-vf", vf] +
-            ["-filter_complex", af] +
-            ["-map","0:v","-map",map_audio] +
-            ["-c:v","libx264","-crf",str(QUALIDADE_CRF),
-             "-preset",VELOCIDADE_ENC,
-             "-profile:v","high","-level","4.1",
-             "-pix_fmt","yuv420p","-r","30",
-             "-movflags","+faststart",
-             "-c:a","aac","-b:a","192k","-ar","44100",
-             "-map_metadata","-1",
-             "-metadata","title=","-metadata","comment=","-metadata","encoder=",
-             str(saida_mp4)]
+            ["ffmpeg", "-y"]
+            + inputs
+            + ["-t", str(duracao + 0.5)]  # duração exata do áudio + buffer
+            + ["-vf", vf]
+            + ["-filter_complex", af]
+            + ["-map", "0:v", "-map", map_audio]
+            + [
+                "-c:v",
+                "libx264",
+                "-crf",
+                str(QUALIDADE_CRF),
+                "-preset",
+                VELOCIDADE_ENC,
+                "-profile:v",
+                "high",
+                "-level",
+                "4.1",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "30",
+                "-movflags",
+                "+faststart",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "44100",
+                "-map_metadata",
+                "-1",
+                "-metadata",
+                "title=",
+                "-metadata",
+                "comment=",
+                "-metadata",
+                "encoder=",
+                str(saida_mp4),
+            ]
         )
 
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=cfg.timeout_ffmpeg_encode)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=cfg.timeout_ffmpeg_encode,
+        )
 
         if res.returncode != 0:
             log(f"Erro FFmpeg: {res.stderr[-300:]}", "ERRO")
             return None, None
 
-        tam = saida_mp4.stat().st_size / (1024*1024)
+        tam = saida_mp4.stat().st_size / (1024 * 1024)
         dur_final = obter_duracao_audio(saida_mp4)
         log(f"✅ Vídeo pronto: {saida_mp4.name} ({tam:.1f}MB | {dur_final:.1f}s)")
 
     # ── Salvar .txt com título/descrição/hashtags ────────
-    hashtags_str = " ".join(dados_roteiro.get("hashtags",[]))
+    hashtags_str = " ".join(dados_roteiro.get("hashtags", []))
     conteudo_txt = (
         f"=== YOUTUBE SHORTS ===\n"
         f"TÍTULO:\n{dados_roteiro.get('titulo_yt','')}\n\n"
@@ -609,9 +718,13 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
 
     return saida_mp4, saida_txt
 
+
 # ─── PIPELINE POR FORMATO ────────────────────────────────
 
-def gerar_video(formato: str, tema: Optional[str] = None, duracao: Optional[tuple] = None) -> tuple:
+
+def gerar_video(
+    formato: str, tema: Optional[str] = None, duracao: Optional[tuple] = None
+) -> tuple:
     """Pipeline completo para um único vídeo"""
 
     banco.inicializar()
@@ -620,7 +733,7 @@ def gerar_video(formato: str, tema: Optional[str] = None, duracao: Optional[tupl
     Path(PASTA_PRONTOS).mkdir(exist_ok=True)
 
     log(f"Gerando vídeo: {formato.upper()}", "PROC")
-    print("─"*50)
+    print("─" * 50)
 
     # 1. IA gera roteiro
     custo_total = 0.0
@@ -639,8 +752,8 @@ def gerar_video(formato: str, tema: Optional[str] = None, duracao: Optional[tupl
     log(f"Roteiro: {palavras} palavras | custo: ${dados['custo_usd']:.4f}")
 
     # 2. Gerar áudio com cleanup garantido
-    ts           = datetime.now().strftime("%H%M%S")
-    audio_path   = Path(PASTA_AUDIO_TEMP) / f"audio_{formato}_{ts}.mp3"
+    ts = datetime.now().strftime("%H%M%S")
+    audio_path = Path(PASTA_AUDIO_TEMP) / f"audio_{formato}_{ts}.mp3"
 
     try:
         ok = gerar_audio(dados["roteiro"], audio_path)
@@ -659,36 +772,43 @@ def gerar_video(formato: str, tema: Optional[str] = None, duracao: Optional[tupl
             try:
                 audio_path.unlink()
             except Exception as e:
-                logger.warning("Falha ao limpar arquivo temporário %s: %s", audio_path, e)
+                logger.warning(
+                    "Falha ao limpar arquivo temporário %s: %s", audio_path, e
+                )
 
     if video_out:
         vid_id = banco.registrar_video(
             url=f"gerado_{formato}_{ts}",
-            titulo=dados.get("titulo_yt",""),
+            titulo=dados.get("titulo_yt", ""),
             duracao_s=obter_duracao_audio(video_out),
-            caminho_arquivo=str(video_out)
+            caminho_arquivo=str(video_out),
         )
         banco.registrar_corte(
-            video_id=vid_id, numero=1,
+            video_id=vid_id,
+            numero=1,
             corte_info={
                 "categoria": "ia",
-                "tipo":   formato,
-                "titulo": dados.get("titulo_yt",""),
+                "tipo": formato,
+                "titulo": dados.get("titulo_yt", ""),
                 "gancho": dados["roteiro"].split(".")[0][:80],
                 "inicio": 0,
-                "fim":    obter_duracao_audio(video_out)
+                "fim": obter_duracao_audio(video_out),
             },
             caminho_video=video_out,
             caminho_txt=txt_out,
-            desc_info=dados
+            desc_info=dados,
         )
-        log(f"Registrado no banco", "DB")
+        log("Registrado no banco", "DB")
 
     return video_out, txt_out
 
+
 # ─── PIPELINE DO DIA ─────────────────────────────────────
 
-def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[int] = None) -> list:
+
+def gerar_videos_do_dia(
+    formatos: Optional[list] = None, quantidade: Optional[int] = None
+) -> list:
     verificar_deps()
 
     # Monta automaticamente a fila de vídeos do dia
@@ -707,23 +827,23 @@ def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[in
     if quantidade:
         formatos_usar = formatos_usar[:quantidade]
 
-    print("\n" + "═"*58)
+    print("\n" + "═" * 58)
     print("  GERADOR DE CONTEÚDO RELIGIOSO")
     print(f"  {len(formatos_usar)} vídeo(s) para gerar hoje")
-    print("═"*58 + "\n")
+    print("═" * 58 + "\n")
 
     # Mostrar distribuição de duração
     duracoes = {
-        "reflexao":  f"{DURACAO_REFLEXAO[0]}–{DURACAO_REFLEXAO[1]}s",
-        "historia":  f"{DURACAO_HISTORIA[0]}–{DURACAO_HISTORIA[1]}s",
+        "reflexao": f"{DURACAO_REFLEXAO[0]}–{DURACAO_REFLEXAO[1]}s",
+        "historia": f"{DURACAO_HISTORIA[0]}–{DURACAO_HISTORIA[1]}s",
         "versiculo": f"{DURACAO_VERSICULO[0]}–{DURACAO_VERSICULO[1]}s",
     }
-    longos  = sum(1 for f in formatos_usar if f in ["reflexao","historia"])
-    medios  = sum(1 for f in formatos_usar if f == "versiculo")
+    longos = sum(1 for f in formatos_usar if f in ["reflexao", "historia"])
+    medios = sum(1 for f in formatos_usar if f == "versiculo")
     print(f"  Distribuição: {longos} longo(s) >60s | {medios} médio(s) =60s")
     print(f"  Pasta de saída: {Path(PASTA_PRONTOS).resolve()}\n")
 
-    prontos     = []
+    prontos = []
     custo_total = 0.0
 
     for i, fmt in enumerate(formatos_usar, 1):
@@ -732,10 +852,10 @@ def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[in
         if video:
             prontos.append((video, txt, fmt))
 
-    print("\n" + "═"*58)
+    print("\n" + "═" * 58)
     print(f"  ✅ {len(prontos)}/{len(formatos_usar)} vídeos gerados")
     print(f"  📁 {Path(PASTA_PRONTOS).resolve()}")
-    print("═"*58 + "\n")
+    print("═" * 58 + "\n")
 
     if prontos:
         print("Vídeos prontos:\n")
@@ -748,9 +868,7 @@ def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[in
             print()
 
     # Notificar conclusão
-    custo_total_local = sum(
-        d.get("custo_usd", 0) for d in [{}]  # placeholder
-    )
+    custo_total_local = sum(d.get("custo_usd", 0) for d in [{}])  # placeholder
     notificar.pipeline_concluido(
         origem="Gerador de Conteúdo",
         total=len(formatos_usar),
@@ -758,23 +876,32 @@ def gerar_videos_do_dia(formatos: Optional[list] = None, quantidade: Optional[in
     )
     return prontos
 
+
 # ─── CLI ─────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="Gerador de conteúdo religioso — TikTok + YouTube Shorts"
     )
-    parser.add_argument("--formato",    choices=["reflexao","historia","versiculo"],
-                        help="Gerar apenas um formato específico")
-    parser.add_argument("--tema",       help="Tema ou versículo específico")
-    parser.add_argument("--quantidade", type=int,
-                        help="Quantidade total de vídeos a gerar")
-    parser.add_argument("--longo",      action="store_true",
-                        help="Gerar apenas vídeos longos (reflexão + história)")
+    parser.add_argument(
+        "--formato",
+        choices=["reflexao", "historia", "versiculo"],
+        help="Gerar apenas um formato específico",
+    )
+    parser.add_argument("--tema", help="Tema ou versículo específico")
+    parser.add_argument(
+        "--quantidade", type=int, help="Quantidade total de vídeos a gerar"
+    )
+    parser.add_argument(
+        "--longo",
+        action="store_true",
+        help="Gerar apenas vídeos longos (reflexão + história)",
+    )
     args = parser.parse_args()
 
     if args.longo:
-        gerar_videos_do_dia(formatos=["reflexao","historia","reflexao"])
+        gerar_videos_do_dia(formatos=["reflexao", "historia", "reflexao"])
     elif args.formato:
         verificar_deps()
         gerar_video(args.formato, tema=args.tema)
@@ -782,9 +909,10 @@ def main():
         formatos = None
         if args.quantidade:
             # Mais longos quando quantidade é maior
-            base = ["reflexao","historia","versiculo"]
+            base = ["reflexao", "historia", "versiculo"]
             formatos = None  # usa distribuição padrão
         gerar_videos_do_dia(quantidade=args.quantidade)
+
 
 if __name__ == "__main__":
     main()

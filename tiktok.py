@@ -31,36 +31,40 @@ import json
 import logging
 import sys
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR  = Path("tiktok_session")
+SESSION_DIR = Path("tiktok_session")
 SESSION_FILE = SESSION_DIR / "session.json"
-UPLOAD_URL   = "https://www.tiktok.com/creator-center/upload"
-LOGIN_URL    = "https://www.tiktok.com/login"
+UPLOAD_URL = "https://www.tiktok.com/creator-center/upload"
+LOGIN_URL = "https://www.tiktok.com/login"
 
 # Tempo máximo de espera para operações de upload (segundos)
-TIMEOUT_UPLOAD  = 120_000   # 2 minutos
-TIMEOUT_NAVEG   = 30_000    # 30 segundos
-TIMEOUT_LOGIN   = 300_000   # 5 minutos para o usuário fazer login manual
+TIMEOUT_UPLOAD = 120_000  # 2 minutos
+TIMEOUT_NAVEG = 30_000  # 30 segundos
+TIMEOUT_LOGIN = 300_000  # 5 minutos para o usuário fazer login manual
 
 
 def log(msg: str, nivel: str = "INFO") -> None:
-    hora  = datetime.now().strftime("%H:%M:%S")
+    hora = datetime.now().strftime("%H:%M:%S")
     icons = {"INFO": "✓", "ERRO": "✗", "AVISO": "⚠", "PROC": "→", "TT": "📱"}
     print(f"[{hora}] {icons.get(nivel, '·')} {msg}")
-    if nivel == "ERRO":    logger.error(msg)
-    elif nivel == "AVISO": logger.warning(msg)
-    else:                  logger.info(msg)
+    if nivel == "ERRO":
+        logger.error(msg)
+    elif nivel == "AVISO":
+        logger.warning(msg)
+    else:
+        logger.info(msg)
 
 
 def _get_playwright():
     """Importa playwright e retorna o módulo sync_api."""
     try:
         from playwright.sync_api import sync_playwright
+
         return sync_playwright
     except ImportError:
         print("\n❌ Playwright não instalado. Rode:")
@@ -71,6 +75,7 @@ def _get_playwright():
 
 # ── LOGIN E SESSÃO ────────────────────────────────────────
 
+
 def fazer_login() -> bool:
     """
     Abre o navegador para o usuário fazer login manualmente.
@@ -79,9 +84,9 @@ def fazer_login() -> bool:
     sync_playwright = _get_playwright()
     SESSION_DIR.mkdir(exist_ok=True)
 
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print("  LOGIN NO TIKTOK — Playwright")
-    print("═"*55)
+    print("═" * 55)
     print("\n  O navegador vai abrir agora.")
     print("  Faça login normalmente na sua conta TikTok.")
     print("  Após o login, AGUARDE — o script detecta automaticamente.")
@@ -89,8 +94,8 @@ def fazer_login() -> bool:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,   # mostra o navegador para o usuário fazer login
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            headless=False,  # mostra o navegador para o usuário fazer login
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
@@ -98,7 +103,7 @@ def fazer_login() -> bool:
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
-            )
+            ),
         )
         page = context.new_page()
 
@@ -113,7 +118,7 @@ def fazer_login() -> bool:
             # para a página inicial após autenticação bem-sucedida
             page.wait_for_url(
                 lambda url: "tiktok.com" in url and "/login" not in url,
-                timeout=TIMEOUT_LOGIN
+                timeout=TIMEOUT_LOGIN,
             )
             # Aguarda mais um pouco para garantir que os cookies estão prontos
             page.wait_for_timeout(3000)
@@ -127,13 +132,12 @@ def fazer_login() -> bool:
         storage = context.storage_state()
 
         dados_sessao = {
-            "cookies":  cookies,
-            "storage":  storage,
+            "cookies": cookies,
+            "storage": storage,
             "salvo_em": datetime.now().isoformat(),
         }
         SESSION_FILE.write_text(
-            json.dumps(dados_sessao, indent=2, ensure_ascii=False),
-            encoding="utf-8"
+            json.dumps(dados_sessao, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
         log(f"✅ Login bem-sucedido! Sessão salva em {SESSION_FILE}", "TT")
@@ -166,8 +170,9 @@ def sessao_valida() -> bool:
         _carregar_sessao(context)
         page = context.new_page()
         try:
-            page.goto("https://www.tiktok.com/creator-center/upload",
-                      timeout=TIMEOUT_NAVEG)
+            page.goto(
+                "https://www.tiktok.com/creator-center/upload", timeout=TIMEOUT_NAVEG
+            )
             page.wait_for_timeout(3000)
             # Se redirecionar para login, sessão expirou
             valida = "/login" not in page.url
@@ -179,6 +184,7 @@ def sessao_valida() -> bool:
 
 
 # ── UPLOAD DE VÍDEO ──────────────────────────────────────
+
 
 class TikTokClient:
     """
@@ -196,11 +202,14 @@ class TikTokClient:
             return False
         return True
 
-    def postar(self, caminho_video,
-               titulo: str,
-               descricao: str = "",
-               hashtags: list | None = None,
-               privacidade: str = "PUBLIC_TO_EVERYONE") -> Optional[str]:
+    def postar(
+        self,
+        caminho_video,
+        titulo: str,
+        descricao: str = "",
+        hashtags: list | None = None,
+        privacidade: str = "PUBLIC_TO_EVERYONE",
+    ) -> Optional[str]:
         """
         Posta um vídeo no TikTok via automação Playwright.
 
@@ -225,11 +234,8 @@ class TikTokClient:
         log(f"TikTok: postando {caminho_video.name} ({tamanho_mb:.1f}MB)", "TT")
 
         # Montar caption com hashtags
-        hashtags   = hashtags or []
-        tags_str   = " ".join(
-            h if h.startswith("#") else f"#{h}"
-            for h in hashtags
-        )
+        hashtags = hashtags or []
+        tags_str = " ".join(h if h.startswith("#") else f"#{h}" for h in hashtags)
         caption = f"""{titulo}
 
         {descricao}
@@ -239,8 +245,8 @@ class TikTokClient:
         sync_playwright = _get_playwright()
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=False,   # headless em produção
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+                headless=False,  # headless em produção
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
             )
             context = browser.new_context(
                 viewport={"width": 1280, "height": 800},
@@ -248,7 +254,7 @@ class TikTokClient:
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/120.0.0.0 Safari/537.36"
-                )
+                ),
             )
 
             # Carregar sessão salva
@@ -282,10 +288,20 @@ class TikTokClient:
                 log("Aguardando processamento do vídeo...", "PROC")
                 page.wait_for_timeout(5000)
 
-
-
                 # Fechar popups conhecidos
-                for texto in ["Skip","Close","Cancel","Dismiss","Got it","OK","Okay","Entendi","Fechar","Agora não","Not now"]:
+                for texto in [
+                    "Skip",
+                    "Close",
+                    "Cancel",
+                    "Dismiss",
+                    "Got it",
+                    "OK",
+                    "Okay",
+                    "Entendi",
+                    "Fechar",
+                    "Agora não",
+                    "Not now",
+                ]:
                     try:
                         page.get_by_role("button", name=texto).click(timeout=1000)
                         page.wait_for_timeout(500)
@@ -306,7 +322,7 @@ class TikTokClient:
                         "[class*='upload-progress'][class*='100'],"
                         "[class*='complete'],"
                         "[data-e2e='video-upload-done']",
-                        timeout=TIMEOUT_UPLOAD
+                        timeout=TIMEOUT_UPLOAD,
                     )
                 except Exception:
                     # Alguns layouts não possuem esses seletores
@@ -321,7 +337,19 @@ class TikTokClient:
                         page.wait_for_timeout(1000)
 
                 # Fechar popup novamente, caso ele apareça após o processamento
-                for texto in ["Skip","Close","Cancel","Dismiss","Got it","OK","Okay","Entendi","Fechar","Agora não","Not now"]:
+                for texto in [
+                    "Skip",
+                    "Close",
+                    "Cancel",
+                    "Dismiss",
+                    "Got it",
+                    "OK",
+                    "Okay",
+                    "Entendi",
+                    "Fechar",
+                    "Agora não",
+                    "Not now",
+                ]:
                     try:
                         page.get_by_role("button", name=texto).click(timeout=2000)
                         page.wait_for_timeout(500)
@@ -345,9 +373,7 @@ class TikTokClient:
                 for selector in caption_selectors:
                     try:
                         log(f"Tentando: {selector}", "PROC")
-                        caption_field = page.wait_for_selector(
-                            selector, timeout=5000
-                        )
+                        caption_field = page.wait_for_selector(selector, timeout=5000)
                         if caption_field:
                             log("Campo encontrado!", "PROC")
                             break
@@ -448,11 +474,13 @@ class TikTokClient:
                         log("Popup de restrição detectado.", "AVISO")
 
                         # Localiza o modal que contém a mensagem
-                        modal = page.locator(
-                            "div:has-text('O conteúdo pode estar restrito')"
-                        ).filter(
-                            has_text="Substituir vídeo"
-                        ).last
+                        modal = (
+                            page.locator(
+                                "div:has-text('O conteúdo pode estar restrito')"
+                            )
+                            .filter(has_text="Substituir vídeo")
+                            .last
+                        )
 
                         if modal.count() > 0:
                             log("Modal de restrição localizado.", "PROC")
@@ -463,7 +491,7 @@ class TikTokClient:
 
                             log(
                                 f"Encontrados {botoes.count()} botão(ões) no modal.",
-                                "PROC"
+                                "PROC",
                             )
 
                             clicou = False
@@ -475,10 +503,7 @@ class TikTokClient:
                                     if botao.is_visible() and botao.is_enabled():
                                         texto = botao.inner_text().strip()
 
-                                        log(
-                                            f"Botão {i}: '{texto}'",
-                                            "PROC"
-                                        )
+                                        log(f"Botão {i}: '{texto}'", "PROC")
 
                                         # Não clicar em fechar/cancelar/substituir
                                         if texto.lower() not in [
@@ -486,13 +511,13 @@ class TikTokClient:
                                             "fechar",
                                             "substituir vídeo",
                                             "substituir",
-                                            "x"
+                                            "x",
                                         ]:
                                             botao.click(force=True)
 
                                             log(
                                                 f"Clique realizado no botão: '{texto}'",
-                                                "PROC"
+                                                "PROC",
                                             )
 
                                             clicou = True
@@ -504,7 +529,7 @@ class TikTokClient:
                             if not clicou:
                                 log(
                                     "Nenhum botão apropriado encontrado dentro do modal.",
-                                    "ERRO"
+                                    "ERRO",
                                 )
 
                         else:
@@ -520,10 +545,7 @@ class TikTokClient:
                 try:
                     page.wait_for_timeout(2000)
 
-                    confirmar = page.get_by_role(
-                        "button",
-                        name="Publicar agora"
-                    )
+                    confirmar = page.get_by_role("button", name="Publicar agora")
 
                     if confirmar.count() > 0 and confirmar.first.is_visible():
 
@@ -551,8 +573,7 @@ class TikTokClient:
                 # Verifica se apareceu o popup de conteúdo restrito
                 try:
                     popup_text = page.get_by_text(
-                        "O conteúdo pode estar restrito",
-                        exact=False
+                        "O conteúdo pode estar restrito", exact=False
                     )
 
                     if popup_text.count() > 0:
@@ -563,9 +584,7 @@ class TikTokClient:
                         # Procuramos diretamente pelo botão "Publicar agora".
 
                         botao_publicar_agora = page.get_by_role(
-                            "button",
-                            name="Publicar agora",
-                            exact=True
+                            "button", name="Publicar agora", exact=True
                         )
 
                         if botao_publicar_agora.count() > 0:
@@ -580,12 +599,11 @@ class TikTokClient:
                         else:
                             log(
                                 "Popup apareceu, mas 'Publicar agora' não foi encontrado.",
-                                "AVISO"
+                                "AVISO",
                             )
 
                 except Exception as e:
                     logger.debug("Erro ao verificar popup: %s", e)
-
 
                 # ==========================================================
                 # VERIFICAÇÃO FINAL
@@ -616,41 +634,34 @@ class TikTokClient:
                     except Exception:
                         continue
 
-
                 # 2. Verifica se o TikTok saiu da tela de upload
                 if not postagem_confirmada:
                     try:
                         url_atual = page.url.lower()
 
                         if "/upload" not in url_atual:
-                            log(
-                                f"TikTok saiu da tela de upload: {page.url}",
-                                "PROC"
-                            )
+                            log(f"TikTok saiu da tela de upload: {page.url}", "PROC")
                             postagem_confirmada = True
 
                     except Exception:
                         pass
-
 
                 # 3. Se o popup de restrição sumiu
                 if not postagem_confirmada:
                     try:
                         popup = page.get_by_text(
-                            "O conteúdo pode estar restrito",
-                            exact=False
+                            "O conteúdo pode estar restrito", exact=False
                         )
 
                         if popup.count() == 0:
                             log(
                                 "Popup de restrição desapareceu após publicação.",
-                                "PROC"
+                                "PROC",
                             )
                             postagem_confirmada = True
 
                     except Exception:
                         pass
-
 
                 # ==========================================================
                 # RESULTADO
@@ -660,20 +671,13 @@ class TikTokClient:
 
                     ref_id = f"tt_{int(time.time())}"
 
-                    log(
-                        f"✅ Postado no TikTok! Ref: {ref_id}",
-                        "TT"
-                    )
+                    log(f"✅ Postado no TikTok! Ref: {ref_id}", "TT")
 
                     browser.close()
 
                     return ref_id
 
-
-                log(
-                    "TikTok não apresentou confirmação explícita da postagem.",
-                    "ERRO"
-                )
+                log("TikTok não apresentou confirmação explícita da postagem.", "ERRO")
 
                 browser.close()
 
@@ -688,34 +692,21 @@ class TikTokClient:
                     page.screenshot(path=str(shot_path))
 
                     html_path = SESSION_DIR / f"erro_{int(time.time())}.html"
-                    html_path.write_text(
-                        page.content(),
-                        encoding="utf-8"
-                    )
+                    html_path.write_text(page.content(), encoding="utf-8")
 
-                    log(
-                        f"Screenshot salvo: {shot_path}",
-                        "AVISO"
-                    )
+                    log(f"Screenshot salvo: {shot_path}", "AVISO")
 
                 except Exception as e:
-                    logger.debug(
-                        "Falha ao salvar screenshot: %s",
-                        e
-                    )
+                    logger.debug("Falha ao salvar screenshot: %s", e)
 
                 browser.close()
                 return None
-
 
     def testar(self) -> bool:
         """Verifica se a sessão está ativa."""
 
         if not SESSION_FILE.exists():
-            print(
-                "\n❌ Sessão não encontrada. "
-                "Rode: python tiktok.py --login\n"
-            )
+            print("\n❌ Sessão não encontrada. " "Rode: python tiktok.py --login\n")
             return False
 
         log("Verificando sessão TikTok...", "PROC")
@@ -723,14 +714,9 @@ class TikTokClient:
         valida = sessao_valida()
 
         if valida:
-            dados = json.loads(
-                SESSION_FILE.read_text(encoding="utf-8")
-            )
+            dados = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
 
-            salvo_em = dados.get(
-                "salvo_em",
-                "desconhecido"
-            )
+            salvo_em = dados.get("salvo_em", "desconhecido")
 
             print("\n✅ Sessão TikTok ativa!")
             print(f"   Salva em: {salvo_em}")
@@ -738,9 +724,7 @@ class TikTokClient:
 
         else:
             print("\n❌ Sessão expirada ou inválida.")
-            print(
-                "   Rode: python tiktok.py --login\n"
-            )
+            print("   Rode: python tiktok.py --login\n")
 
         return valida
 
@@ -757,28 +741,36 @@ tiktok = TikTokClient()
 
 # ── CLI ───────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="TikTok via Playwright — postagem sem API oficial"
     )
-    parser.add_argument("--login",       action="store_true",
-                        help="Fazer login e salvar sessão")
-    parser.add_argument("--testar",      action="store_true",
-                        help="Verificar se a sessão está ativa")
-    parser.add_argument("--postar",      metavar="VIDEO.MP4",
-                        help="Postar um vídeo agora")
-    parser.add_argument("--titulo",      default="",
-                        help="Título/caption do vídeo")
-    parser.add_argument("--privacidade", default="PUBLIC_TO_EVERYONE",
-                        choices=["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
-                        help="Privacidade do vídeo")
-    parser.add_argument("--instalar",    action="store_true",
-                        help="Instalar o navegador Chromium (necessário uma vez)")
+    parser.add_argument(
+        "--login", action="store_true", help="Fazer login e salvar sessão"
+    )
+    parser.add_argument(
+        "--testar", action="store_true", help="Verificar se a sessão está ativa"
+    )
+    parser.add_argument("--postar", metavar="VIDEO.MP4", help="Postar um vídeo agora")
+    parser.add_argument("--titulo", default="", help="Título/caption do vídeo")
+    parser.add_argument(
+        "--privacidade",
+        default="PUBLIC_TO_EVERYONE",
+        choices=["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+        help="Privacidade do vídeo",
+    )
+    parser.add_argument(
+        "--instalar",
+        action="store_true",
+        help="Instalar o navegador Chromium (necessário uma vez)",
+    )
     args = parser.parse_args()
 
     # Setup logging
     try:
         from logger_setup import get_logger
+
         get_logger(__name__)
     except Exception:
         logging.basicConfig(level=logging.WARNING)
@@ -786,6 +778,7 @@ def main():
     if args.instalar:
         print("\n📦 Instalando Chromium para Playwright...\n")
         import subprocess
+
         resultado = subprocess.run(
             ["playwright", "install", "chromium"],
             capture_output=False,
@@ -794,19 +787,22 @@ def main():
         if resultado.returncode == 0:
             print("\n✅ Chromium instalado! Agora rode: python tiktok.py --login\n")
         else:
-            print("\n❌ Falha na instalação. Tente: python -m playwright install chromium\n")
+            print(
+                "\n❌ Falha na instalação. Tente: python -m playwright install chromium\n"
+            )
 
     elif args.login:
         ok = fazer_login()
         if ok:
-            print("\n✅ Login salvo! O sistema vai postar automaticamente daqui pra frente.\n")
+            print(
+                "\n✅ Login salvo! O sistema vai postar automaticamente daqui pra frente.\n"
+            )
         else:
             print("\n❌ Login falhou. Tente novamente.\n")
             sys.exit(1)
 
     elif args.testar:
         tiktok.testar()
-
 
     elif args.postar:
 
@@ -823,11 +819,7 @@ def main():
 
             hashtags = parte.split("HASHTAGS:")[1].strip().split()
 
-            titulo = (
-                f"{titulo}\n\n"
-                f"{descricao}\n\n"
-                f"{' '.join(hashtags)}"
-            )
+            titulo = f"{titulo}\n\n" f"{descricao}\n\n" f"{' '.join(hashtags)}"
 
         else:
             titulo = args.titulo or Path(args.postar).stem

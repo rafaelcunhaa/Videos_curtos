@@ -3,26 +3,28 @@
 Testes para viral_enhancer.py - Features de Viralização
 """
 
-import pytest
-from pathlib import Path
 import json
 import subprocess
-from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
 from viral_enhancer import (
+    _analisar_contraste,
+    _aplicar_zoom_dinamico,
+    _detectar_cenas,
+    _detectar_movimento,
+    _detectar_mudanca_cena,
+    _extrair_clip,
+    _gerar_ass_viral,
+    _obter_duracao_video,
+    _segundos_para_ass_time,
+    _verificar_audio,
     adicionar_legendas_virais,
     analisar_hook_score,
     otimizar_cortes_dinamicos,
     validar_video_para_postagem,
-    _obter_duracao_video,
-    _gerar_ass_viral,
-    _segundos_para_ass_time,
-    _detectar_movimento,
-    _analisar_contraste,
-    _verificar_audio,
-    _detectar_mudanca_cena,
-    _extrair_clip,
-    _detectar_cenas,
-    _aplicar_zoom_dinamico
 )
 
 
@@ -33,13 +35,25 @@ def video_fake(tmp_path):
 
     # Criar vídeo fake com FFmpeg (60s, 1080x1920, com áudio)
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "testsrc=duration=60:size=1080x1920:rate=30",
-        "-f", "lavfi", "-i", "sine=frequency=1000:duration=60",
-        "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "ultrafast",
-        "-c:a", "aac",
-        str(video)
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=duration=60:size=1080x1920:rate=30",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=1000:duration=60",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-c:a",
+        "aac",
+        str(video),
     ]
 
     try:
@@ -58,6 +72,7 @@ def texto_exemplo():
 # ═══════════════════════════════════════════════════════
 #  TESTES - LEGENDAS DINÂMICAS
 # ═══════════════════════════════════════════════════════
+
 
 @pytest.mark.unit
 def test_segundos_para_ass_time():
@@ -81,7 +96,7 @@ def test_gerar_ass_viral_bounce(tmp_path, texto_exemplo):
         output,
         estilo="bounce",
         cor_primaria="yellow",
-        cor_secundaria="white"
+        cor_secundaria="white",
     )
 
     # Verificar se arquivo foi criado
@@ -110,7 +125,7 @@ def test_gerar_ass_viral_highlight(tmp_path, texto_exemplo):
         output,
         estilo="highlight",
         cor_primaria="yellow",
-        cor_secundaria="white"
+        cor_secundaria="white",
     )
 
     conteudo = output.read_text(encoding="utf-8")
@@ -130,7 +145,7 @@ def test_gerar_ass_viral_karaoke(tmp_path, texto_exemplo):
         output,
         estilo="karaoke",
         cor_primaria="yellow",
-        cor_secundaria="white"
+        cor_secundaria="white",
     )
 
     conteudo = output.read_text(encoding="utf-8")
@@ -176,7 +191,9 @@ def test_obter_duracao_video_erro(mock_run, tmp_path):
 @pytest.mark.integration
 @patch("subprocess.run")
 @patch("viral_enhancer._obter_duracao_video")
-def test_adicionar_legendas_virais_sucesso(mock_duracao, mock_run, tmp_path, texto_exemplo):
+def test_adicionar_legendas_virais_sucesso(
+    mock_duracao, mock_run, tmp_path, texto_exemplo
+):
     """Testa adição de legendas virais com sucesso."""
     video = tmp_path / "video.mp4"
     video.touch()
@@ -190,12 +207,7 @@ def test_adicionar_legendas_virais_sucesso(mock_duracao, mock_run, tmp_path, tex
     mock_result.returncode = 0
     mock_run.return_value = mock_result
 
-    sucesso = adicionar_legendas_virais(
-        video,
-        texto_exemplo,
-        output,
-        estilo="bounce"
-    )
+    sucesso = adicionar_legendas_virais(video, texto_exemplo, output, estilo="bounce")
 
     assert sucesso is True
     mock_duracao.assert_called_once_with(video)
@@ -226,6 +238,7 @@ def test_adicionar_legendas_virais_sem_duracao(mock_duracao, tmp_path, texto_exe
 # ═══════════════════════════════════════════════════════
 #  TESTES - HOOK ANALYZER
 # ═══════════════════════════════════════════════════════
+
 
 @pytest.mark.unit
 @patch("subprocess.run")
@@ -389,6 +402,7 @@ def test_analisar_hook_score_fraco(
 #  TESTES - CORTES DINÂMICOS
 # ═══════════════════════════════════════════════════════
 
+
 @pytest.mark.unit
 @patch("subprocess.run")
 def test_detectar_cenas(mock_run):
@@ -448,7 +462,7 @@ def test_otimizar_cortes_dinamicos_ja_otimizado(mock_copy, mock_cenas, tmp_path)
     mock_cenas.return_value = [
         (0.0, 2.0),
         (2.0, 4.5),
-        (4.5, 7.0)
+        (4.5, 7.0),
     ]  # Média: 2.5s/cena - bom ritmo
 
     sucesso = otimizar_cortes_dinamicos(video, output)
@@ -469,7 +483,7 @@ def test_otimizar_cortes_dinamicos_precisa_zoom(mock_zoom, mock_cenas, tmp_path)
     # Simular cenas longas
     mock_cenas.return_value = [
         (0.0, 8.0),
-        (8.0, 15.0)
+        (8.0, 15.0),
     ]  # Média: 7.5s/cena - precisa otimizar
 
     mock_zoom.return_value = True
@@ -483,6 +497,7 @@ def test_otimizar_cortes_dinamicos_precisa_zoom(mock_zoom, mock_cenas, tmp_path)
 # ═══════════════════════════════════════════════════════
 #  TESTES - VALIDAÇÃO COMPLETA
 # ═══════════════════════════════════════════════════════
+
 
 @pytest.mark.integration
 @patch("viral_enhancer.analisar_hook_score")
@@ -498,7 +513,7 @@ def test_validar_video_para_postagem_aprovado(mock_duracao, mock_hook, tmp_path)
         "contraste": True,
         "audio": True,
         "cena": True,
-        "recomendacao": "Excelente"
+        "recomendacao": "Excelente",
     }
     mock_duracao.return_value = 65.0  # Duração ideal
 
@@ -526,7 +541,7 @@ def test_validar_video_para_postagem_reprovado(mock_duracao, mock_hook, tmp_path
         "contraste": True,
         "audio": False,
         "cena": False,
-        "recomendacao": "Hook fraco"
+        "recomendacao": "Hook fraco",
     }
     mock_duracao.return_value = 120.0  # Muito longo
 
@@ -541,6 +556,7 @@ def test_validar_video_para_postagem_reprovado(mock_duracao, mock_hook, tmp_path
 # ═══════════════════════════════════════════════════════
 #  TESTES - EDGE CASES
 # ═══════════════════════════════════════════════════════
+
 
 @pytest.mark.unit
 def test_segundos_para_ass_time_edge_cases():
@@ -603,6 +619,7 @@ def test_obter_duracao_video_timeout(mock_run, tmp_path):
 #  TESTES - SEGURANÇA
 # ═══════════════════════════════════════════════════════
 
+
 @pytest.mark.security
 def test_validacao_path_injection(tmp_path):
     """Testa proteção contra path injection em legendas."""
@@ -628,8 +645,8 @@ def test_validacao_path_injection(tmp_path):
 @pytest.mark.security
 def test_validacao_comando_injection_ass():
     """Testa proteção contra command injection em arquivo ASS."""
-    from pathlib import Path
     import tempfile
+    from pathlib import Path
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output = Path(tmpdir) / "test.ass"
@@ -639,18 +656,11 @@ def test_validacao_comando_injection_ass():
             "normal",
             "'; rm -rf / #",
             "$(whoami)",
-            "`cat /etc/passwd`"
+            "`cat /etc/passwd`",
         ]
 
         # Não deve executar comandos
-        _gerar_ass_viral(
-            palavras_maliciosas,
-            0.5,
-            output,
-            "bounce",
-            "yellow",
-            "white"
-        )
+        _gerar_ass_viral(palavras_maliciosas, 0.5, output, "bounce", "yellow", "white")
 
         # Arquivo deve ser criado normalmente
         assert output.exists()

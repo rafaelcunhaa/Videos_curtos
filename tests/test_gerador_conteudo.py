@@ -2,10 +2,11 @@
 Testes do Gerador de Conteúdo - APIs externas e montagem de vídeo.
 Valida geração de roteiro, áudio, e montagem com mocks.
 """
-import pytest
+
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
-import json
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.mark.unit
@@ -22,7 +23,7 @@ class TestGeracaoRoteiro:
             "roteiro": "Este é um roteiro de teste para um Short incrível.",
             "titulo": "Título Teste",
             "hashtags": ["#teste", "#shorts"],
-            "custo_usd": 0.05
+            "custo_usd": 0.05,
         }
 
         resultado = gerar_roteiro_completo(tema="Tecnologia", tipo="denso")
@@ -69,7 +70,7 @@ class TestGeracaoRoteiro:
             mock.return_value = {
                 "roteiro": "Teste",
                 "titulo": "Teste",
-                "hashtags": ["#teste"]
+                "hashtags": ["#teste"],
             }
 
             # Tipos válidos
@@ -121,8 +122,9 @@ class TestGeracaoAudio:
     @patch("gerador_conteudo.requests.post")
     def test_gerar_audio_timeout(self, mock_post, config_teste, tmp_path):
         """Timeout na API deve ser tratado."""
-        from gerador_conteudo import gerar_audio
         import requests
+
+        from gerador_conteudo import gerar_audio
 
         # Simular timeout
         mock_post.side_effect = requests.Timeout("Connection timeout")
@@ -156,7 +158,7 @@ class TestMontagemVideo:
             "roteiro": "Roteiro teste",
             "titulo": "Título",
             "hashtags": ["#teste"],
-            "caminho_fundo": str(fundo)
+            "caminho_fundo": str(fundo),
         }
 
         video_out, txt_out = montar_video(dados, audio_fake, tmp_path)
@@ -165,7 +167,9 @@ class TestMontagemVideo:
         assert txt_out is not None
 
     @patch("gerador_conteudo.subprocess.run")
-    def test_montar_video_falha_ffmpeg(self, mock_run, config_teste, tmp_path, audio_fake):
+    def test_montar_video_falha_ffmpeg(
+        self, mock_run, config_teste, tmp_path, audio_fake
+    ):
         """Falha no FFmpeg deve ser tratada."""
         from gerador_conteudo import montar_video
 
@@ -182,7 +186,7 @@ class TestMontagemVideo:
             "roteiro": "Roteiro teste",
             "titulo": "Título",
             "hashtags": ["#teste"],
-            "caminho_fundo": str(fundo)
+            "caminho_fundo": str(fundo),
         }
 
         video_out, txt_out = montar_video(dados, audio_fake, tmp_path)
@@ -197,9 +201,10 @@ class TestLimpezaRecursos:
 
     @patch("gerador_conteudo.gerar_audio")
     @patch("gerador_conteudo.montar_video")
-    def test_audio_temp_limpo_apos_sucesso(self, mock_montar, mock_audio, config_teste, tmp_path):
+    def test_audio_temp_limpo_apos_sucesso(
+        self, mock_montar, mock_audio, config_teste, tmp_path
+    ):
         """Áudio temporário deve ser limpo após montagem."""
-        from gerador_conteudo import gerar_roteiro_completo
 
         # Criar arquivo de áudio fake
         audio_fake = tmp_path / "temp_audio.mp3"
@@ -214,9 +219,10 @@ class TestLimpezaRecursos:
 
     @patch("gerador_conteudo.gerar_audio")
     @patch("gerador_conteudo.montar_video")
-    def test_audio_temp_limpo_apos_erro(self, mock_montar, mock_audio, config_teste, tmp_path):
+    def test_audio_temp_limpo_apos_erro(
+        self, mock_montar, mock_audio, config_teste, tmp_path
+    ):
         """Áudio temporário deve ser limpo mesmo com erro."""
-        from gerador_conteudo import gerar_roteiro_completo
 
         # Mock de falha no montar_video
         mock_audio.return_value = True
@@ -236,7 +242,7 @@ class TestGeracaoDescricao:
         dados = {
             "titulo": "Título Teste",
             "roteiro": "Roteiro completo aqui",
-            "hashtags": ["#teste", "#shorts", "#tech"]
+            "hashtags": ["#teste", "#shorts", "#tech"],
         }
 
         # Função pode não existir
@@ -245,6 +251,7 @@ class TestGeracaoDescricao:
 
             # Verificar limites
             from constantes import YOUTUBE_MAX_DESCRICAO
+
             assert len(descricao) <= YOUTUBE_MAX_DESCRICAO
         except (NameError, AttributeError, ImportError):
             pytest.skip("Função não implementada")
@@ -268,8 +275,9 @@ class TestFluxoCompleto:
     @patch("gerador_conteudo.chamar_anthropic")
     @patch("gerador_conteudo.gerar_audio")
     @patch("gerador_conteudo.montar_video")
-    def test_pipeline_completo(self, mock_montar, mock_audio, mock_anthropic,
-                                config_teste, tmp_path):
+    def test_pipeline_completo(
+        self, mock_montar, mock_audio, mock_anthropic, config_teste, tmp_path
+    ):
         """Pipeline completo de geração."""
         from gerador_conteudo import gerar_roteiro_completo
 
@@ -277,7 +285,7 @@ class TestFluxoCompleto:
         mock_anthropic.return_value = {
             "roteiro": "Roteiro teste",
             "titulo": "Título",
-            "hashtags": ["#teste"]
+            "hashtags": ["#teste"],
         }
 
         mock_audio.return_value = True
@@ -335,7 +343,7 @@ class TestCustoAPI:
             "roteiro": "Teste",
             "titulo": "Teste",
             "hashtags": ["#teste"],
-            "custo_usd": 0.05
+            "custo_usd": 0.05,
         }
 
         resultado = gerar_roteiro_completo(tema="Tech", tipo="denso")
@@ -390,17 +398,19 @@ class TestPerformance:
     @patch("gerador_conteudo.chamar_anthropic")
     @patch("gerador_conteudo.gerar_audio")
     @patch("gerador_conteudo.montar_video")
-    def test_tempo_geracao_razoavel(self, mock_montar, mock_audio, mock_anthropic,
-                                     config_teste):
+    def test_tempo_geracao_razoavel(
+        self, mock_montar, mock_audio, mock_anthropic, config_teste
+    ):
         """Geração completa deve completar em tempo razoável."""
         import time
+
         from gerador_conteudo import gerar_roteiro_completo
 
         # Mocks instantâneos
         mock_anthropic.return_value = {
             "roteiro": "Teste",
             "titulo": "Teste",
-            "hashtags": ["#teste"]
+            "hashtags": ["#teste"],
         }
         mock_audio.return_value = True
         mock_montar.return_value = (Path("/tmp/video.mp4"), Path("/tmp/desc.txt"))
@@ -425,11 +435,7 @@ class TestErrorRecovery:
         # Primeira chamada falha, segunda sucede
         mock_anthropic.side_effect = [
             Exception("Timeout"),
-            {
-                "roteiro": "Teste",
-                "titulo": "Teste",
-                "hashtags": ["#teste"]
-            }
+            {"roteiro": "Teste", "titulo": "Teste", "hashtags": ["#teste"]},
         ]
 
         # Se houver retry, deve suceder

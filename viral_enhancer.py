@@ -24,16 +24,15 @@
 =======================================================
 """
 
-import os
-import re
-import subprocess
 import json
+import re
 import shutil
+import subprocess
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
-from datetime import timedelta
-from logger_setup import get_logger
+from typing import Dict, List, Optional, Tuple
+
 from config import cfg
+from logger_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -41,13 +40,14 @@ logger = get_logger(__name__)
 #  1. LEGENDAS DINÂMICAS PALAVRA-POR-PALAVRA
 # ═══════════════════════════════════════════════════════
 
+
 def adicionar_legendas_virais(
     video_path: Path,
     texto: str,
     output_path: Path,
     estilo: str = "bounce",
     cor_primaria: str = "yellow",
-    cor_secundaria: str = "white"
+    cor_secundaria: str = "white",
 ) -> bool:
     """
     Adiciona legendas animadas palavra-por-palavra estilo viral.
@@ -81,24 +81,29 @@ def adicionar_legendas_virais(
 
         # Gerar arquivo ASS com animações
         ass_path = video_path.parent / f"{video_path.stem}_legendas.ass"
-        _gerar_ass_viral(palavras, tempo_por_palavra, ass_path, estilo, cor_primaria, cor_secundaria)
+        _gerar_ass_viral(
+            palavras, tempo_por_palavra, ass_path, estilo, cor_primaria, cor_secundaria
+        )
 
         # Aplicar legendas com FFmpeg
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-vf", f"ass={ass_path}",
-            "-c:a", "copy",
-            "-preset", cfg.velocidade_enc,
-            "-crf", str(cfg.qualidade_crf),
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"ass={ass_path}",
+            "-c:a",
+            "copy",
+            "-preset",
+            cfg.velocidade_enc,
+            "-crf",
+            str(cfg.qualidade_crf),
+            str(output_path),
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffmpeg_encode
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffmpeg_encode
         )
 
         if result.returncode == 0:
@@ -122,17 +127,18 @@ def _obter_duracao_video(video_path: Path) -> Optional[float]:
     """Obtém duração do vídeo em segundos."""
     try:
         cmd = [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "json",
-            str(video_path)
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(video_path),
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         if result.returncode == 0:
@@ -151,7 +157,7 @@ def _gerar_ass_viral(
     output_path: Path,
     estilo: str,
     cor_primaria: str,
-    cor_secundaria: str
+    cor_secundaria: str,
 ) -> None:
     """
     Gera arquivo ASS com animações palavra-por-palavra.
@@ -217,7 +223,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start_grupo = grupo_palavras[0][0]
             end_grupo = grupo_palavras[-1][1]
 
-            ass_content += f"Dialogue: 0,{start_grupo},{end_grupo},Viral,,0,0,0,,{texto_grupo}\n"
+            ass_content += (
+                f"Dialogue: 0,{start_grupo},{end_grupo},Viral,,0,0,0,,{texto_grupo}\n"
+            )
             grupo_palavras = []
 
         tempo_atual = fim
@@ -239,6 +247,7 @@ def _segundos_para_ass_time(segundos: float) -> str:
 # ═══════════════════════════════════════════════════════
 #  2. HOOK ANALYZER - Analisa Primeiros 3 Segundos
 # ═══════════════════════════════════════════════════════
+
 
 def analisar_hook_score(video_path: Path) -> Dict[str, any]:
     """
@@ -268,7 +277,7 @@ def analisar_hook_score(video_path: Path) -> Dict[str, any]:
             "movimento": False,
             "contraste": False,
             "audio": False,
-            "cena": False
+            "cena": False,
         }
 
         # Extrair primeiros 3 segundos
@@ -314,11 +323,7 @@ def analisar_hook_score(video_path: Path) -> Dict[str, any]:
         else:
             recomendacao = "❌ Hook fraco. NÃO POSTAR - refazer primeiros 3s."
 
-        resultado = {
-            "score": score,
-            **detalhes,
-            "recomendacao": recomendacao
-        }
+        resultado = {"score": score, **detalhes, "recomendacao": recomendacao}
 
         logger.info(f"Hook Score: {score}/100 - {recomendacao}")
         return resultado
@@ -328,22 +333,27 @@ def analisar_hook_score(video_path: Path) -> Dict[str, any]:
         return {"score": 0, "erro": str(e)}
 
 
-def _extrair_clip(video_path: Path, output_path: Path, inicio: float, duracao: float) -> bool:
+def _extrair_clip(
+    video_path: Path, output_path: Path, inicio: float, duracao: float
+) -> bool:
     """Extrai clip de X segundos do vídeo."""
     try:
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-ss", str(inicio),
-            "-t", str(duracao),
-            "-c", "copy",
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-ss",
+            str(inicio),
+            "-t",
+            str(duracao),
+            "-c",
+            "copy",
+            str(output_path),
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=cfg.timeout_ffmpeg_corte
+            cmd, capture_output=True, timeout=cfg.timeout_ffmpeg_corte
         )
 
         return result.returncode == 0
@@ -362,16 +372,17 @@ def _detectar_movimento(video_path: Path) -> float:
         # Usar filtro select com motion vectors
         cmd = [
             "ffmpeg",
-            "-i", str(video_path),
-            "-vf", "select='gt(scene,0.1)',showinfo",
-            "-f", "null", "-"
+            "-i",
+            str(video_path),
+            "-vf",
+            "select='gt(scene,0.1)',showinfo",
+            "-f",
+            "null",
+            "-",
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         # Contar frames com movimento no stderr
@@ -392,18 +403,10 @@ def _analisar_contraste(video_path: Path) -> float:
     Retorna valor 0-100 (quanto maior, melhor contraste).
     """
     try:
-        cmd = [
-            "ffmpeg",
-            "-i", str(video_path),
-            "-vf", "signalstats",
-            "-f", "null", "-"
-        ]
+        cmd = ["ffmpeg", "-i", str(video_path), "-vf", "signalstats", "-f", "null", "-"]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         # Extrair YMIN e YMAX do stderr
@@ -428,16 +431,17 @@ def _verificar_audio(video_path: Path) -> bool:
     try:
         cmd = [
             "ffmpeg",
-            "-i", str(video_path),
-            "-af", "volumedetect",
-            "-f", "null", "-"
+            "-i",
+            str(video_path),
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         # Verificar mean_volume (se > -50dB, tem áudio)
@@ -460,16 +464,17 @@ def _detectar_mudanca_cena(video_path: Path) -> bool:
     try:
         cmd = [
             "ffmpeg",
-            "-i", str(video_path),
-            "-vf", "select='gt(scene,0.4)',showinfo",
-            "-f", "null", "-"
+            "-i",
+            str(video_path),
+            "-vf",
+            "select='gt(scene,0.4)',showinfo",
+            "-f",
+            "null",
+            "-",
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         # Se encontrou pelo menos 1 mudança de cena
@@ -485,10 +490,9 @@ def _detectar_mudanca_cena(video_path: Path) -> bool:
 #  3. CORTES DINÂMICOS - Ritmo 2-3s
 # ═══════════════════════════════════════════════════════
 
+
 def otimizar_cortes_dinamicos(
-    video_path: Path,
-    output_path: Path,
-    ritmo_segundos: float = 2.5
+    video_path: Path, output_path: Path, ritmo_segundos: float = 2.5
 ) -> bool:
     """
     Otimiza vídeo para ritmo dinâmico de 2-3s por cena.
@@ -540,16 +544,17 @@ def _detectar_cenas(video_path: Path) -> List[Tuple[float, float]]:
     try:
         cmd = [
             "ffmpeg",
-            "-i", str(video_path),
-            "-vf", "select='gt(scene,0.3)',showinfo",
-            "-f", "null", "-"
+            "-i",
+            str(video_path),
+            "-vf",
+            "select='gt(scene,0.3)',showinfo",
+            "-f",
+            "null",
+            "-",
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=cfg.timeout_ffprobe
+            cmd, capture_output=True, text=True, timeout=cfg.timeout_ffprobe
         )
 
         # Extrair timestamps das cenas
@@ -565,7 +570,7 @@ def _detectar_cenas(video_path: Path) -> List[Tuple[float, float]]:
         if cenas:
             intervalos = []
             for i in range(len(cenas) - 1):
-                intervalos.append((cenas[i], cenas[i+1]))
+                intervalos.append((cenas[i], cenas[i + 1]))
             return intervalos
 
         return []
@@ -588,19 +593,23 @@ def _aplicar_zoom_dinamico(video_path: Path, output_path: Path) -> bool:
         )
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-vf", filtro,
-            "-c:a", "copy",
-            "-preset", cfg.velocidade_enc,
-            "-crf", str(cfg.qualidade_crf),
-            str(output_path)
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            filtro,
+            "-c:a",
+            "copy",
+            "-preset",
+            cfg.velocidade_enc,
+            "-crf",
+            str(cfg.qualidade_crf),
+            str(output_path),
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=cfg.timeout_ffmpeg_encode
+            cmd, capture_output=True, timeout=cfg.timeout_ffmpeg_encode
         )
 
         if result.returncode == 0:
@@ -619,7 +628,10 @@ def _aplicar_zoom_dinamico(video_path: Path, output_path: Path) -> bool:
 #  UTILITÁRIOS
 # ═══════════════════════════════════════════════════════
 
-def validar_video_para_postagem(video_path: Path, hook_minimo: int = 70) -> Dict[str, any]:
+
+def validar_video_para_postagem(
+    video_path: Path, hook_minimo: int = 70
+) -> Dict[str, any]:
     """
     Validação completa antes de postar.
 
@@ -631,12 +643,7 @@ def validar_video_para_postagem(video_path: Path, hook_minimo: int = 70) -> Dict
             "sugestoes": []
         }
     """
-    resultado = {
-        "aprovado": False,
-        "hook_score": 0,
-        "motivos": [],
-        "sugestoes": []
-    }
+    resultado = {"aprovado": False, "hook_score": 0, "motivos": [], "sugestoes": []}
 
     # 1. Analisar hook
     hook_analise = analisar_hook_score(video_path)
@@ -645,7 +652,9 @@ def validar_video_para_postagem(video_path: Path, hook_minimo: int = 70) -> Dict
     if resultado["hook_score"] >= hook_minimo:
         resultado["motivos"].append(f"✓ Hook score: {resultado['hook_score']}/100")
     else:
-        resultado["sugestoes"].append(f"Hook fraco ({resultado['hook_score']}/100). Melhorar primeiros 3s.")
+        resultado["sugestoes"].append(
+            f"Hook fraco ({resultado['hook_score']}/100). Melhorar primeiros 3s."
+        )
         return resultado
 
     # 2. Verificar duração (ideal: 50-90s)
@@ -653,7 +662,9 @@ def validar_video_para_postagem(video_path: Path, hook_minimo: int = 70) -> Dict
     if duracao and 50 <= duracao <= 90:
         resultado["motivos"].append(f"✓ Duração ideal: {duracao:.0f}s")
     else:
-        resultado["sugestoes"].append(f"Duração fora do ideal: {duracao:.0f}s (recomendado: 50-90s)")
+        resultado["sugestoes"].append(
+            f"Duração fora do ideal: {duracao:.0f}s (recomendado: 50-90s)"
+        )
 
     # Se chegou aqui, está aprovado
     resultado["aprovado"] = resultado["hook_score"] >= hook_minimo

@@ -1,4 +1,4 @@
-# Arquitetura Atual — BOOMVIBES
+2# Arquitetura Atual — BOOMVIBES
 
 > Documento criado na ETAPA 1 do plano de evolução profissional do projeto.  
 > Escopo desta etapa: **análise da arquitetura atual, pontos de entrada, componentes, riscos e próximos passos**.  
