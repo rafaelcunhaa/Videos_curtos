@@ -38,7 +38,8 @@ def test_geradores_ia_usam_resposta_real_da_api(funcao, argumento, formato, conf
     with patch.object(gerador_conteudo, "chamar_anthropic", return_value=_resposta_ia(dados)):
         resultado = getattr(gerador_conteudo, funcao)(argumento, duracao=(30, 40))
 
-    assert resultado["roteiro"] == dados["roteiro"]
+    assert resultado["roteiro"].startswith(resultado["gancho"])
+    assert resultado["roteiro"].endswith(resultado["cta_video"])
     assert resultado["formato"] == formato
     assert resultado["custo_usd"] > 0
     assert resultado["duracao_alvo"] == (30, 40)
@@ -56,6 +57,8 @@ def test_normalizar_engajamento_aplica_defaults():
     resultado = _normalizar_engajamento({"roteiro": "Texto"}, "reflexao", "Tema")
 
     assert resultado["tema"] == "Tema"
+    assert resultado["roteiro"].startswith(resultado["gancho"])
+    assert resultado["roteiro"].endswith(resultado["cta_video"])
     assert resultado["serie"] == "REFLEXAO"
     assert resultado["numero_serie"] >= 1
     assert len(resultado["gancho_opcoes"]) == 3

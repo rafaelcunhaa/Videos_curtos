@@ -252,18 +252,25 @@ def _normalizar_engajamento(dados: dict, formato: str, tema: str) -> dict:
             "Mas existe um detalhe que quase ninguém percebe...",
             "E se Deus estiver falando com você agora?",
         ]
+    roteiro = str(dados.get("roteiro") or "").strip()
+    if roteiro and not roteiro.lower().startswith(gancho.lower()):
+        roteiro = f"{gancho} {roteiro}"
+    cta_video = str(
+        dados.get("cta_video") or "Comente AMÉM se essa mensagem falou com você."
+    ).strip()
+    if roteiro and not roteiro.lower().endswith(cta_video.lower()):
+        roteiro = f"{roteiro.rstrip('.!?')} {cta_video}"
+
     dados.update(
         {
             "formato": formato,
             "tema": dados.get("tema") or dados.get("versiculo") or tema,
+            "roteiro": roteiro,
             "gancho": gancho,
             "gancho_opcoes": [str(opcao).strip() for opcao in opcoes[:3]],
             "numero_serie": numero,
             "serie": str(dados.get("serie") or formato.upper()),
-            "cta_video": str(
-                dados.get("cta_video")
-                or "Comente AMÉM se essa mensagem falou com você."
-            ),
+            "cta_video": cta_video,
             "cta_comentario": str(
                 dados.get("cta_comentario")
                 or "Qual tema você quer ver no próximo vídeo?"
