@@ -247,7 +247,11 @@ def _normalizar_engajamento(dados: dict, formato: str, tema: str) -> dict:
     gancho = str(dados.get("gancho") or "Você precisava ouvir isso hoje?").strip()
     opcoes = dados.get("gancho_opcoes")
     if not isinstance(opcoes, list) or len(opcoes) < 3:
-        opcoes = [gancho, "Mas existe um detalhe que quase ninguém percebe...", "E se Deus estiver falando com você agora?"]
+        opcoes = [
+            gancho,
+            "Mas existe um detalhe que quase ninguém percebe...",
+            "E se Deus estiver falando com você agora?",
+        ]
     dados.update(
         {
             "formato": formato,
@@ -256,8 +260,14 @@ def _normalizar_engajamento(dados: dict, formato: str, tema: str) -> dict:
             "gancho_opcoes": [str(opcao).strip() for opcao in opcoes[:3]],
             "numero_serie": numero,
             "serie": str(dados.get("serie") or formato.upper()),
-            "cta_video": str(dados.get("cta_video") or "Comente AMÉM se essa mensagem falou com você."),
-            "cta_comentario": str(dados.get("cta_comentario") or "Qual tema você quer ver no próximo vídeo?"),
+            "cta_video": str(
+                dados.get("cta_video")
+                or "Comente AMÉM se essa mensagem falou com você."
+            ),
+            "cta_comentario": str(
+                dados.get("cta_comentario")
+                or "Qual tema você quer ver no próximo vídeo?"
+            ),
         }
     )
     return dados

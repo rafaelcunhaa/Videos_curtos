@@ -8,7 +8,6 @@ processar_video.py e gerador_conteudo.py.
 import json
 import logging
 import re
-import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
