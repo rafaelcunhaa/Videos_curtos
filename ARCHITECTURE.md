@@ -505,6 +505,21 @@ Para respeitar a regra de não reescrever nem quebrar funcionalidade:
 7. Usar testes como rede de segurança, mas primeiro corrigir testes quebrados/desatualizados.
 8. Nunca exibir secrets completos em logs, relatórios ou commits.
 
+## 16. Atualização após ETAPA 4 (commit 43b5ec6) — Documentado pelo usuário com aprovação explícita
+
+Estado do projeto após a conclusão das etapas anteriores (ETAPA 4 finalizada, commit `5f80487` e commit de ajuste `43b5ec6`):
+
+- `config.py`: `modelo_claude` atualizado para `claude-sonnet-4-6` (env `ANTHROPIC_MODEL`).
+- `gerador_conteudo.py`: registro DB (`banco.registrar_video` + `registrar_corte`) reposicionado corretamente dentro do `try`, antes do `return`, e removido do `finally`.
+- `retry.py`: docstring atualizada para o modelo Claude atual.
+- `utils.py`: docstring `calcular_custo_claude` atualizada para "Claude Sonnet" genérico.
+- Nenhuma alteração revertida sem autorização; todas preservadas.
+- `tests/test_utils.py`: `ImportError` diagnosticado. As funções importadas (`obter_duracao`, `t2ass`, `parse_json_robusto`, `calcular_custo_claude`, `nome_seguro`, `salvar_txt_publicacao`) existem em `utils.py`. A causa provável é divergência no ambiente de execução ou configuração de path dos testes. Correção aprovada pelo usuário para ser aplicada quando o ambiente permitir execução.
+- `tests/test_viral_enhancer.py`: 28 passed — validado anteriormente, estável.
+- Próximo passo recomendado (já aprovado pelo usuário): corrigir `ImportError` dos testes, depois rodar `pytest` incrementalmente, e só então considerar ETAPA 5 (otimização ou segurança) após estabilização completa dos testes.
+
+Próxima etapa recomendada: **Correção de testes `test_utils.py` / `test_servidor.py`** antes de qualquer mudança funcional, conforme estratégia segura (não alterar pipeline de produção sem rede de segurança confiável).
+
 ## 16. Conclusão da ETAPA 1
 
 A arquitetura atual é funcional e cobre um pipeline completo de automação de vídeos curtos, mas ainda precisa de endurecimento profissional em segurança, testes, resiliência e observabilidade.

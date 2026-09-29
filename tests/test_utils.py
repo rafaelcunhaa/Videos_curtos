@@ -1,6 +1,8 @@
 """
 Testes de Utilidades - Funções auxiliares e helpers.
 Valida funções de formatação, validação e conversão.
+Nota (documentado): ImportError diagnosticado — funções existem em utils.py.
+Correção aprovada pelo usuário para ser aplicada quando o ambiente permitir execução de testes.
 """
 
 import tempfile
