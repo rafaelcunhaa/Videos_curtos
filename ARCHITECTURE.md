@@ -318,11 +318,21 @@ Pontos de atenção:
 
 ### Resultado da suíte completa
 
-Execução anterior da suíte completa registrou:
+A execução histórica da suíte completa registrou:
 
 ```text
 73 failed, 71 passed, 2 warnings in 224.22s
 ```
+
+Validação incremental atual (Python 3.14.4, pytest 9.1.1, Windows):
+
+- `tests/test_utils.py`: **27 passed, 2 skipped**.
+- `tests/test_banco.py`: **10 passed**.
+- `tests/test_viral_enhancer.py`: **28 passed**.
+- `tests/test_gerador_conteudo.py`: **5 passed, 16 failed**; falhas principalmente por APIs esperadas pelos testes (`gerar_roteiro_completo`, `gerar_descricao_youtube`, `gerar_legendas`) que não existem na implementação atual.
+- `tests/test_agendador.py`: **4 passed, 10 failed**; falhas principalmente por APIs legadas (`verificar_agendamentos`, `executar_postagem`, `postar_no_youtube`) e `banco.buscar_corte` ausentes.
+- `tests/test_servidor.py::TestEndpointHealth::test_health_check`: **1 passed**; a execução completa deve ser repetida isoladamente, pois apresentou interrupção durante a primeira tentativa.
+- Nenhum `ImportError` foi reproduzido em `tests/test_utils.py`; a configuração existente (`pytest.ini` + `tests/conftest.py`) funciona corretamente.
 
 Falhas predominantes observadas:
 
