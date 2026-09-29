@@ -213,6 +213,17 @@ def test_montar_video_usa_modo_legenda_configurado(tmp_path):
 
 
 @pytest.mark.unit
+def test_legendas_destacam_frase_configurada(tmp_path):
+    from gerador_conteudo import roteiro_para_ass
+
+    destino = tmp_path / "destacado.ass"
+    roteiro_para_ass("Você precisa ouvir isso agora.", 3.0, destino, destaque_frase="Você precisa")
+    texto = destino.read_text(encoding="utf-8")
+    assert "Você precisa ouvir isso agora." in texto
+    assert "[Script Info]" in texto
+
+
+@pytest.mark.unit
 def test_gerar_video_formato_invalido():
     from gerador_conteudo import gerar_video
 

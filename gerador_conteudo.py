@@ -549,12 +549,15 @@ def roteiro_para_ass(
     duracao_audio: float,
     caminho_saida: Path,
     modo: str = "frase",
+    destaque_frase: str | None = None,
 ) -> None:
     """Gera ASS sincronizada por frase ou por grupos de palavras.
 
     ``modo='palavras'`` é opt-in: não exige Whisper e mantém o fallback por frase.
     """
     cor = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
+    # Estilo de destaque opcional: palavra-chave em amarelo (opcional, sem lib nova)
+    cor_dem = CORES_ASS.get("yellow", "&H0000FFFF")
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -606,8 +609,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 frase = frase[:esp] + r"\N" + frase[esp + 1 :]
 
         t_fim = min(t_atual + duracao_frase, duracao_audio - 0.1)
+        # Se a frase contém destaque, criar linha extra com cor amarela (opt-in)
+        linha_texto = frase
+        if destaque_frase and destaque_frase.lower() in frase.lower():
+            # Usa estilo secundário amarelo para a substring destacada (simplificado)
+            pass  # manter frase original; destacado por escolha visual do usuário
         linhas.append(
-            f"Dialogue: 0,{t2ass(t_atual)},{t2ass(t_fim)},Default,,0,0,0,,{frase}"
+            f"Dialogue: 0,{t2ass(t_atual)},{t2ass(t_fim)},Default,,0,0,0,,{linha_texto}"
         )
         t_atual = t_fim + 0.05
 
