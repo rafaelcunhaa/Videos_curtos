@@ -226,6 +226,43 @@ def calcular_palavras_alvo(duracao_min: int, duracao_max: int) -> int:
     return int(media / 60 * 130)
 
 
+def _proximo_numero_serie(formato: str) -> int:
+    """Retorna o próximo número de série sem tornar o banco obrigatório."""
+    try:
+        import banco
+
+        cortes = banco.listar_cortes()
+        return 1 + sum(1 for corte in cortes if corte.get("tipo") == formato)
+    except Exception:
+        return 1
+
+
+def _normalizar_engajamento(dados: dict, formato: str, tema: str) -> dict:
+    """Completa campos de engajamento sem confiar cegamente na resposta da IA."""
+    numero = dados.get("numero_serie") or _proximo_numero_serie(formato)
+    try:
+        numero = max(1, int(numero))
+    except (TypeError, ValueError):
+        numero = _proximo_numero_serie(formato)
+    gancho = str(dados.get("gancho") or "Você precisava ouvir isso hoje?").strip()
+    opcoes = dados.get("gancho_opcoes")
+    if not isinstance(opcoes, list) or len(opcoes) < 3:
+        opcoes = [gancho, "Mas existe um detalhe que quase ninguém percebe...", "E se Deus estiver falando com você agora?"]
+    dados.update(
+        {
+            "formato": formato,
+            "tema": dados.get("tema") or dados.get("versiculo") or tema,
+            "gancho": gancho,
+            "gancho_opcoes": [str(opcao).strip() for opcao in opcoes[:3]],
+            "numero_serie": numero,
+            "serie": str(dados.get("serie") or formato.upper()),
+            "cta_video": str(dados.get("cta_video") or "Comente AMÉM se essa mensagem falou com você."),
+            "cta_comentario": str(dados.get("cta_comentario") or "Qual tema você quer ver no próximo vídeo?"),
+        }
+    )
+    return dados
+
+
 def ia_gerar_reflexao(
     tema: Optional[str] = None, duracao: Optional[tuple] = None
 ) -> dict:
@@ -240,6 +277,7 @@ def ia_gerar_reflexao(
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
     log(f"IA gerando reflexão sobre: '{tema}' (~{palavras} palavras)", "IA")
+    padrao_gancho = _config_otimizada.get("padrao_gancho", "pergunta ou contraste")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
     prompt = f"""Crie uma reflexão espiritual cristã para TikTok/Shorts sobre o tema: "{tema}"
@@ -248,14 +286,17 @@ REQUISITOS:
 - Exatamente {palavras} palavras (±10) — isso é crítico para a duração do vídeo
 - Tom: íntimo, acolhedor, como um pastor falando com seu rebanho
 - Começa com uma FRASE DE IMPACTO ou pergunta que prende atenção nos primeiros 3 segundos
+- Priorize este padrão de gancho quando aplicável: {padrao_gancho}
 - Desenvolve o tema com profundidade e exemplos práticos do dia a dia
 - Inclui pelo menos 1 versículo bíblico encaixado naturalmente no texto
 - Termina com uma declaração de fé poderosa ou chamada para ação espiritual
 - Linguagem simples, acessível, sem palavras difíceis
 - NÃO use títulos, subtítulos, bullets ou marcadores — texto corrido para narração
+- A primeira frase deve ser o gancho; não comece com saudação ou introdução genérica
+- Termine com o CTA exatamente no final do roteiro
 
 Responda SOMENTE com JSON puro:
-{{"roteiro":"texto completo aqui","tema":"{tema}","versiculo_usado":"ref do versículo","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
+{{"roteiro":"texto completo aqui começando pelo gancho e terminando pelo CTA","gancho":"gancho principal","gancho_opcoes":["opção 1","opção 2","opção 3"],"tema":"{tema}","versiculo_usado":"ref do versículo","serie":"REFLEXAO","numero_serie":1,"cta_video":"CTA curto para aparecer no vídeo","cta_comentario":"pergunta para comentários","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
     resposta = chamar_anthropic(
         cliente.messages.create,
@@ -268,7 +309,8 @@ Responda SOMENTE com JSON puro:
     ) / 1_000_000
     texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"] = "reflexao"
+    dados = _normalizar_engajamento(dados, "reflexao", tema)
+    dados["transparencia_ia"] = bool(getattr(cfg, "mostrar_transparencia_ia", False))
     dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
@@ -287,6 +329,7 @@ def ia_gerar_historia(
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
     log(f"IA gerando história: '{tema}' (~{palavras} palavras)", "IA")
+    padrao_gancho = _config_otimizada.get("padrao_gancho", "pergunta ou contraste")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
     prompt = f"""Narre a história de "{tema}" para um vídeo TikTok/Shorts de conteúdo religioso.
@@ -295,13 +338,15 @@ REQUISITOS:
 - Exatamente {palavras} palavras (±10) — crítico para duração do vídeo
 - Estilo: narração cinematográfica, como um documentário bíblico
 - Começa com uma frase de impacto que contextualiza o personagem/situação imediatamente
+- Priorize este padrão de gancho quando aplicável: {padrao_gancho}
 - Conta a história com emoção, detalhes vivos e linguagem atual
 - Conecta a história ao dia a dia do espectador moderno
 - Termina com uma lição aplicável à vida hoje
 - NÃO use títulos, subtítulos ou marcadores — texto corrido para narração
+- A primeira frase deve ser um gancho visual ou uma pergunta; termine com CTA
 
 Responda SOMENTE com JSON puro:
-{{"roteiro":"texto completo aqui","tema":"{tema}","tipo":"bíblica ou santo","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
+{{"roteiro":"texto completo aqui começando pelo gancho e terminando pelo CTA","gancho":"gancho principal","gancho_opcoes":["opção 1","opção 2","opção 3"],"tema":"{tema}","tipo":"bíblica ou santo","serie":"HISTORIA","numero_serie":1,"cta_video":"CTA curto para aparecer no vídeo","cta_comentario":"pergunta para comentários","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
     resposta = chamar_anthropic(
         cliente.messages.create,
@@ -314,7 +359,8 @@ Responda SOMENTE com JSON puro:
     ) / 1_000_000
     texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"] = "historia"
+    dados = _normalizar_engajamento(dados, "historia", tema)
+    dados["transparencia_ia"] = bool(getattr(cfg, "mostrar_transparencia_ia", False))
     dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
@@ -329,6 +375,7 @@ def ia_gerar_versiculo(
     palavras = calcular_palavras_alvo(dur[0], dur[1])
 
     log(f"IA gerando versículo: '{versiculo}' (~{palavras} palavras)", "IA")
+    padrao_gancho = _config_otimizada.get("padrao_gancho", "pergunta ou contraste")
 
     cliente = anthropic.Anthropic(api_key=CHAVE_ANTHROPIC)
     prompt = f"""Crie um vídeo de versículo do dia sobre "{versiculo}" para TikTok/Shorts.
@@ -336,13 +383,15 @@ def ia_gerar_versiculo(
 REQUISITOS:
 - Exatamente {palavras} palavras (±10) — crítico para duração
 - Começa lendo o versículo de forma pausada e impactante
+- Priorize este padrão de gancho quando aplicável: {padrao_gancho}
 - Explica o significado profundo em linguagem simples e atual
 - Dá um exemplo prático de como aplicar esse versículo hoje
 - Termina com uma oração curta ou declaração de fé
 - NÃO use títulos ou marcadores — texto corrido para narração
+- Comece com um gancho antes da explicação e termine com CTA
 
 Responda SOMENTE com JSON puro:
-{{"roteiro":"texto completo aqui","versiculo":"{versiculo}","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
+{{"roteiro":"texto completo aqui começando pelo gancho e terminando pelo CTA","gancho":"gancho principal","gancho_opcoes":["opção 1","opção 2","opção 3"],"versiculo":"{versiculo}","serie":"VERSICULO","numero_serie":1,"cta_video":"CTA curto para aparecer no vídeo","cta_comentario":"pergunta para comentários","titulo_yt":"Título YouTube (máx 80 chars com emoji)","titulo_tiktok":"Título TikTok (máx 60 chars)","descricao":"3 linhas com CTA","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6","#tag7","#tag8","#tag9","#tag10"]}}"""
 
     resposta = chamar_anthropic(
         cliente.messages.create,
@@ -355,7 +404,8 @@ Responda SOMENTE com JSON puro:
     ) / 1_000_000
     texto = re.sub(r"```json|```", "", resposta.content[0].text.strip()).strip()
     dados = json.loads(texto)
-    dados["formato"] = "versiculo"
+    dados = _normalizar_engajamento(dados, "versiculo", versiculo)
+    dados["transparencia_ia"] = bool(getattr(cfg, "mostrar_transparencia_ia", False))
     dados["custo_usd"] = custo
     dados["duracao_alvo"] = dur
     return dados
@@ -477,8 +527,16 @@ def obter_duracao_audio(caminho: Path) -> float:
 # ─── ETAPA 3: GERAR LEGENDA ASS ──────────────────────────
 
 
-def roteiro_para_ass(roteiro: str, duracao_audio: float, caminho_saida: Path) -> None:
-    """Gera legenda ASS sincronizada estimando tempo por palavra"""
+def roteiro_para_ass(
+    roteiro: str,
+    duracao_audio: float,
+    caminho_saida: Path,
+    modo: str = "frase",
+) -> None:
+    """Gera ASS sincronizada por frase ou por grupos de palavras.
+
+    ``modo='palavras'`` é opt-in: não exige Whisper e mantém o fallback por frase.
+    """
     cor = CORES_ASS.get(COR_LEGENDA, "&H00FFFFFF")
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -500,9 +558,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         sc = s % 60
         return f"{h}:{m:02d}:{sc:05.2f}"
 
-    # Quebrar em frases curtas para legenda
+    # Frases são o modo conservador; grupos de 3-5 palavras aumentam o ritmo visual.
     frases = re.split(r"(?<=[.!?,;])\s+", roteiro.strip())
     frases = [f.strip() for f in frases if f.strip()]
+    if modo == "palavras":
+        frases = [
+            " ".join(palavras[i : i + 4])
+            for frase in frases
+            for palavras in [frase.split()]
+            for i in range(0, len(palavras), 4)
+        ]
+    elif modo != "frase":
+        raise ValueError("modo deve ser 'frase' ou 'palavras'")
 
     palavras_total = sum(len(f.split()) for f in frases)
     seg_por_palavra = duracao_audio / max(palavras_total, 1)
@@ -580,19 +647,22 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
 
     log(f"Duração do áudio: {duracao:.1f}s", "PROC")
 
-    ts = datetime.now().strftime("%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     fmt = dados_roteiro.get("formato", "video")
     nome_base = f"{fmt}_{ts}"
     saida_mp4 = pasta_saida / f"{nome_base}.mp4"
     saida_txt = pasta_saida / f"{nome_base}.txt"
 
     fundo = obter_fundo_aleatorio()
-    musica = obter_musica_aleatoria()
+    musica = obter_musica_aleatoria() if dados_roteiro.get("usar_musica", getattr(cfg, "usar_musica_padrao", False)) else None
+    modo_legenda = dados_roteiro.get("modo_legenda", getattr(cfg, "modo_legenda", "frase"))
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         ass_path = tmp / "legenda.ass"
-        roteiro_para_ass(dados_roteiro["roteiro"], duracao, ass_path)
+        roteiro_para_ass(
+            dados_roteiro["roteiro"], duracao, ass_path, modo=modo_legenda
+        )
 
         ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:")
         nome_esc = NOME_CANAL.replace("@", "\\@")
@@ -708,6 +778,12 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
         f"TÍTULO:\n{dados_roteiro.get('titulo_tiktok','')}\n\n"
         f"DESCRIÇÃO:\n{dados_roteiro.get('descricao','')}\n\n"
         f"HASHTAGS:\n{hashtags_str}\n\n"
+        f"=== ENGAJAMENTO ===\n"
+        f"SÉRIE: {dados_roteiro.get('serie','')} #{dados_roteiro.get('numero_serie','')}\n"
+        f"GANCHO: {dados_roteiro.get('gancho','')}\n"
+        f"CTA NO VÍDEO: {dados_roteiro.get('cta_video','')}\n"
+        f"PERGUNTA PARA COMENTÁRIOS: {dados_roteiro.get('cta_comentario','')}\n"
+        f"TRANSPARÊNCIA: {'Roteiro assistido por IA e revisado editorialmente.' if dados_roteiro.get('transparencia_ia') else ''}\n\n"
         f"=== INFO ===\n"
         f"FORMATO: {dados_roteiro.get('formato','')}\n"
         f"DURAÇÃO: {dur_final:.1f}s\n"
@@ -723,7 +799,11 @@ def montar_video(dados_roteiro: dict, caminho_audio: Path, pasta_saida: Path) ->
 
 
 def gerar_video(
-    formato: str, tema: Optional[str] = None, duracao: Optional[tuple] = None
+    formato: str,
+    tema: Optional[str] = None,
+    duracao: Optional[tuple] = None,
+    usar_musica: Optional[bool] = None,
+    modo_legenda: Optional[str] = None,
 ) -> tuple:
     """Pipeline completo para um único vídeo"""
 
@@ -746,6 +826,11 @@ def gerar_video(
     else:
         log(f"Formato desconhecido: {formato}", "ERRO")
         return None, None
+
+    if usar_musica is not None:
+        dados["usar_musica"] = usar_musica
+    if modo_legenda is not None:
+        dados["modo_legenda"] = modo_legenda
 
     custo_total += dados.get("custo_usd", 0)
     palavras = len(dados["roteiro"].split())
@@ -891,6 +976,19 @@ def main():
         "--quantidade", type=int, help="Quantidade total de vídeos a gerar"
     )
     parser.add_argument(
+        "--plataforma",
+        choices=["youtube", "tiktok"],
+        help="Perfil opcional de duração da plataforma",
+    )
+    parser.add_argument(
+        "--musica", action="store_true", help="Ativa música local licenciada"
+    )
+    parser.add_argument(
+        "--legendas-palavras",
+        action="store_true",
+        help="Usa legendas em grupos de palavras",
+    )
+    parser.add_argument(
         "--longo",
         action="store_true",
         help="Gerar apenas vídeos longos (reflexão + história)",
@@ -901,7 +999,22 @@ def main():
         gerar_videos_do_dia(formatos=["reflexao", "historia", "reflexao"])
     elif args.formato:
         verificar_deps()
-        gerar_video(args.formato, tema=args.tema)
+        duracao = None
+        if args.plataforma == "youtube":
+            duracao = cfg.duracao_youtube
+        elif args.plataforma == "tiktok":
+            duracao = cfg.duracao_tiktok
+        video, txt = gerar_video(
+            args.formato,
+            tema=args.tema,
+            duracao=duracao,
+            usar_musica=args.musica,
+            modo_legenda="palavras" if args.legendas_palavras else "frase",
+        )
+        # As flags também podem ser aplicadas diretamente por configuração; o
+        # CLI mantém compatibilidade e deixa o pipeline principal inalterado.
+        if video and txt:
+            log(f"Perfil {args.plataforma or 'padrão'} concluído", "PROC")
     else:
         formatos = None
         if args.quantidade:

@@ -42,6 +42,26 @@ def test_geradores_ia_usam_resposta_real_da_api(funcao, argumento, formato, conf
     assert resultado["formato"] == formato
     assert resultado["custo_usd"] > 0
     assert resultado["duracao_alvo"] == (30, 40)
+    assert resultado["numero_serie"] >= 1
+    assert len(resultado["gancho_opcoes"]) == 3
+    assert resultado["cta_video"]
+    assert resultado["cta_comentario"]
+    assert resultado["transparencia_ia"] is False
+
+
+@pytest.mark.unit
+def test_normalizar_engajamento_aplica_defaults():
+    from gerador_conteudo import _normalizar_engajamento
+
+    resultado = _normalizar_engajamento({"roteiro": "Texto"}, "reflexao", "Tema")
+
+    assert resultado["tema"] == "Tema"
+    assert resultado["serie"] == "REFLEXAO"
+    assert resultado["numero_serie"] >= 1
+    assert len(resultado["gancho_opcoes"]) == 3
+    assert resultado["cta_video"]
+    assert resultado["cta_comentario"]
+    assert resultado["transparencia_ia"] is False
 
 
 @pytest.mark.unit
@@ -82,6 +102,21 @@ def test_gerar_audio_falha_api(mock_post, config_teste, tmp_path):
 
 
 @pytest.mark.unit
+def test_montar_video_nao_seleciona_musica_por_padrao(tmp_path):
+    import gerador_conteudo
+
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+    with patch.object(gerador_conteudo, "obter_duracao_audio", return_value=3.0), patch.object(
+        gerador_conteudo, "obter_fundo_aleatorio", return_value=None
+    ), patch.object(gerador_conteudo, "roteiro_para_ass"), patch.object(
+        gerador_conteudo.subprocess, "run", side_effect=RuntimeError("ffmpeg")
+    ):
+        resultado = gerador_conteudo.montar_video({"roteiro": "Texto"}, audio, tmp_path)
+    assert resultado == (None, None)
+
+
+@pytest.mark.unit
 def test_montar_video_trata_falha_do_ffmpeg(tmp_path):
     from gerador_conteudo import montar_video
 
@@ -89,7 +124,12 @@ def test_montar_video_trata_falha_do_ffmpeg(tmp_path):
     fundo = tmp_path / "fundo.mp4"
     audio.write_bytes(b"audio")
     fundo.write_bytes(b"video")
-    dados = {"roteiro": "Texto", "titulo_yt": "Título", "caminho_fundo": str(fundo)}
+    dados = {
+        "roteiro": "Texto",
+        "titulo_yt": "Título",
+        "caminho_fundo": str(fundo),
+        "usar_musica": False,
+    }
 
     resultado = (None, None)
     with patch("gerador_conteudo.subprocess.run", side_effect=RuntimeError("ffmpeg")):
@@ -105,6 +145,68 @@ def test_gerar_legendas_atual_usa_utilitario(tmp_path):
     gerar_ass_de_roteiro("Texto para legenda.", 5.0, destino)
     assert destino.exists()
     assert "[Script Info]" in destino.read_text(encoding="utf-8")
+
+
+@pytest.mark.unit
+def test_legendas_modo_palavras_cria_segmentos_curto(tmp_path):
+    from gerador_conteudo import roteiro_para_ass
+
+    destino = tmp_path / "palavras.ass"
+    roteiro_para_ass("Uma frase muito longa para testar ritmo visual.", 4.0, destino, modo="palavras")
+    dialogos = [linha for linha in destino.read_text(encoding="utf-8").splitlines() if linha.startswith("Dialogue:")]
+    assert len(dialogos) >= 2
+
+
+@pytest.mark.unit
+def test_legendas_rejeitam_modo_desconhecido(tmp_path):
+    from gerador_conteudo import roteiro_para_ass
+
+    with pytest.raises(ValueError):
+        roteiro_para_ass("Texto", 2.0, tmp_path / "legenda.ass", modo="invalido")
+
+
+@pytest.mark.unit
+def test_arquivo_publicacao_inclui_engajamento(tmp_path):
+    from utils import salvar_txt_publicacao
+
+    destino = tmp_path / "publicacao.txt"
+    salvar_txt_publicacao(
+        destino,
+        {
+            "titulo_yt": "Título",
+            "descricao": "Descrição",
+            "hashtags": ["#fé"],
+            "formato": "reflexao",
+            "roteiro": "Roteiro",
+            "gancho": "Você precisava ouvir isso?",
+            "serie": "REFLEXAO",
+            "numero_serie": 4,
+            "cta_video": "Comente AMÉM",
+            "cta_comentario": "Qual tema amanhã?",
+        },
+        None,
+    )
+    conteudo = destino.read_text(encoding="utf-8")
+    assert "REFLEXAO #4" in conteudo
+    assert "Você precisava ouvir isso?" in conteudo
+    assert "Qual tema amanhã?" in conteudo
+
+
+@pytest.mark.unit
+def test_montar_video_usa_modo_legenda_configurado(tmp_path):
+    import gerador_conteudo
+
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+    with patch.object(gerador_conteudo, "obter_duracao_audio", return_value=3.0), patch.object(
+        gerador_conteudo, "obter_fundo_aleatorio", return_value=None
+    ), patch.object(gerador_conteudo, "roteiro_para_ass") as legenda, patch.object(
+        gerador_conteudo.subprocess, "run", side_effect=RuntimeError("ffmpeg")
+    ):
+        gerador_conteudo.montar_video(
+            {"roteiro": "Texto", "modo_legenda": "palavras"}, audio, tmp_path
+        )
+    assert legenda.call_args.kwargs["modo"] == "palavras"
 
 
 @pytest.mark.unit

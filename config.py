@@ -57,6 +57,14 @@ class Config:
     velocidade_enc: str = "medium"
     pitch_valor: str = "1.02"
     volume_musica: float = 0.15
+    usar_musica_padrao: bool = False
+    gerar_thumbnail: bool = False
+    mostrar_transparencia_ia: bool = False
+    modo_legenda: str = "frase"
+
+    # ── Perfis opcionais por plataforma ────────────────
+    duracao_tiktok: tuple = (30, 45)
+    duracao_youtube: tuple = (45, 59)
 
     # ── Whisper ───────────────────────────────────────
     modelo_whisper: str = "base"

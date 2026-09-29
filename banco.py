@@ -110,6 +110,18 @@ def inicializar():
             CREATE INDEX IF NOT EXISTS idx_cortes_agend  ON cortes(agendado_para)
                 WHERE agendado_para IS NOT NULL;
 
+            CREATE TABLE IF NOT EXISTS reposts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                corte_original_id INTEGER NOT NULL REFERENCES cortes(id) ON DELETE CASCADE,
+                plataforma        TEXT NOT NULL,
+                novo_titulo       TEXT,
+                criado_em         TEXT DEFAULT (datetime('now','localtime')),
+                agendado_para     TEXT,
+                status            TEXT NOT NULL DEFAULT 'pronto'
+                    CHECK(status IN ('pronto','agendado','postado','cancelado')),
+                UNIQUE(corte_original_id, plataforma)
+            );
+
         -- Deduplicação de temas gerados
         CREATE TABLE IF NOT EXISTS temas_usados (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -278,6 +290,55 @@ def registrar_corte(
     return corte_id
 
 
+def cortes_para_repost(dias: int = 30, limite: int = 10) -> list[dict]:
+    """Retorna cortes postados antigos que ainda não foram repostados."""
+    limite = max(1, min(int(limite), 100))
+    dias = max(1, int(dias))
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT c.*, v.titulo AS titulo_video, v.youtube_id
+               FROM cortes c JOIN videos v ON v.id = c.video_id
+               WHERE c.status='postado'
+                 AND c.postado_em <= datetime('now', ?)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM reposts r
+                     WHERE r.corte_original_id=c.id
+                       AND r.status <> 'cancelado'
+                 )
+               ORDER BY c.postado_em ASC LIMIT ?""",
+            (f"-{dias} days", limite),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def listar_reposts(corte_original_id: Optional[int] = None) -> list[dict]:
+    """Lista reposts; filtro por corte mantém a operação idempotente."""
+    query = "SELECT * FROM reposts"
+    params: tuple = ()
+    if corte_original_id is not None:
+        query += " WHERE corte_original_id = ?"
+        params = (corte_original_id,)
+    query += " ORDER BY criado_em DESC"
+    with get_conn() as conn:
+        return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def registrar_repost(
+    corte_original_id: int,
+    plataforma: str = "youtube",
+    novo_titulo: Optional[str] = None,
+) -> Optional[int]:
+    """Registra um repost uma única vez por corte e plataforma."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO reposts
+               (corte_original_id, plataforma, novo_titulo)
+               VALUES (?, ?, ?)""",
+            (corte_original_id, plataforma, novo_titulo),
+        )
+        return int(cur.lastrowid) if cur.rowcount else None
+
+
 def listar_cortes(
     video_id: Optional[int] = None, status: Optional[str] = None
 ) -> list[dict]:
@@ -306,6 +367,17 @@ def listar_cortes(
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def atualizar_status_repost(repost_id: int, status: str, agendado_para: Optional[str] = None) -> None:
+    """Atualiza estado do repost sem alterar o corte original."""
+    if status not in {"pronto", "agendado", "postado", "cancelado"}:
+        raise ValueError(f"Status de repost inválido: {status}")
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE reposts SET status=?, agendado_para=COALESCE(?, agendado_para) WHERE id=?",
+            (status, agendado_para, repost_id),
+        )
 
 
 def atualizar_status_corte(

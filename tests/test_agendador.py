@@ -67,6 +67,36 @@ def test_listar_cortes_agendados_mantem_ordem_cronologica(banco_populado):
 
 
 @pytest.mark.unit
+def test_preparar_reposts_em_dry_run_nao_grava(banco_populado):
+    import agendador
+    import banco
+
+    resultado = agendador.preparar_reposts(dias=1, dry_run=True)
+    assert isinstance(resultado, list)
+    assert banco.listar_reposts() == []
+
+
+@pytest.mark.unit
+def test_preparar_reposts_confirmado_registra_uma_vez(banco_populado):
+    import agendador
+    import banco
+
+    from unittest.mock import patch
+
+    with patch.object(
+        banco,
+        "cortes_para_repost",
+        return_value=[{"id": banco_populado["corte1_id"], "titulo_yt": "Título"}],
+    ):
+        resultado = agendador.preparar_reposts(dias=1, dry_run=False)
+        novamente = agendador.preparar_reposts(dias=1, dry_run=False)
+
+    assert len(resultado) == 1
+    assert novamente == []
+    assert len(banco.listar_reposts(banco_populado["corte1_id"])) == 1
+
+
+@pytest.mark.unit
 def test_postar_agora_falha_sem_corte(banco_teste):
     import agendador
 
@@ -98,6 +128,27 @@ def test_verificar_e_postar_agendados_processa_upload(banco_populado):
         agendador.verificar_e_postar_agendados()
 
     assert _corte(corte_id, banco)["status"] == "postado"
+
+
+@pytest.mark.unit
+def test_repost_idempotente(banco_teste):
+    import banco
+
+    video_id = banco.registrar_video(
+        url="https://youtube.com/watch?v=repost123456", titulo="Teste", duracao_s=180
+    )
+    corte_id = banco.registrar_corte(
+        video_id=video_id,
+        numero=1,
+        corte_info={"tipo": "denso", "categoria": "podcast", "titulo": "Corte"},
+        caminho_video=Path("corte.mp4"),
+        caminho_txt=Path("corte.txt"),
+    )
+    primeiro = banco.registrar_repost(corte_id, "youtube", "Corte revisitado")
+    segundo = banco.registrar_repost(corte_id, "youtube", "Corte revisitado")
+    assert primeiro is not None
+    assert segundo is None
+    assert len(banco.listar_reposts(corte_id)) == 1
 
 
 @pytest.mark.unit

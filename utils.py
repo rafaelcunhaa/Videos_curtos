@@ -8,6 +8,7 @@ processar_video.py e gerador_conteudo.py.
 import json
 import logging
 import re
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -294,6 +295,10 @@ def salvar_txt_publicacao(
         else dados.get("formato", "")
     )
     dur = corte_info.get("duracao", 0) if corte_info else 0
+    serie = dados.get("serie", tipo.upper())
+    numero_serie = dados.get("numero_serie", "")
+    cta_video = dados.get("cta_video", "")
+    cta_comentario = dados.get("cta_comentario", "")
 
     conteudo = (
         f"=== YOUTUBE SHORTS ===\n"
@@ -307,6 +312,33 @@ def salvar_txt_publicacao(
         f"=== INFO ===\n"
         f"TIPO: {tipo}\n"
         f"DURAÇÃO: {dur:.0f}s\n"
+        f"SÉRIE: {serie} #{numero_serie}\n"
         f"GANCHO: {gancho}\n"
+        f"CTA NO VÍDEO: {cta_video}\n"
+        f"PERGUNTA PARA COMENTÁRIOS: {cta_comentario}\n"
     )
     caminho.write_text(conteudo, encoding="utf-8")
+
+
+def gerar_thumbnail(
+    caminho_video: str | Path,
+    caminho_saida: str | Path,
+    texto_titulo: str = "",
+) -> Path | None:
+    """Extrai um frame do vídeo como thumbnail, sem exigir dependências novas."""
+    video = Path(caminho_video)
+    saida = Path(caminho_saida).with_suffix(".jpg")
+    if not video.exists():
+        return None
+    cmd = [
+        "ffmpeg", "-y", "-ss", "00:00:03", "-i", str(video),
+        "-frames:v", "1", "-q:v", "2", str(saida),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Não foi possível gerar thumbnail para %s", video)
+        return None
+    if not saida.exists() or saida.stat().st_size == 0:
+        return None
+    return saida

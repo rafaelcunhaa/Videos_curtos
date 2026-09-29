@@ -53,6 +53,7 @@ from constantes import (
 from logger_setup import get_logger
 from retry import chamar_youtube
 from telegram import notificar
+from utils import gerar_thumbnail
 
 try:
     from google.auth.transport.requests import Request
@@ -188,15 +189,8 @@ def fazer_upload(corte: dict) -> Optional[str]:
     if caminho_txt and Path(caminho_txt).exists():
         conteudo = Path(caminho_txt).read_text(encoding="utf-8")
         # Extrair campos do txt
-        for linha in conteudo.split("\n"):
-            if linha.startswith("TÍTULO:"):
-                proximo = True
-            elif linha.startswith("DESCRIÇÃO:"):
-                proximo = True
-            elif linha.startswith("HASHTAGS:"):
-                proximo = True
-
         # Parse simples do txt
+
         partes = conteudo.split("\n\n")
         for parte in partes:
             if parte.startswith("TÍTULO:"):
@@ -205,6 +199,16 @@ def fazer_upload(corte: dict) -> Optional[str]:
                 descricao = parte.replace("DESCRIÇÃO:", "").strip()
             elif parte.startswith("HASHTAGS:"):
                 hashtags = parte.replace("HASHTAGS:", "").strip().split()
+
+    # Thumbnail é opcional; falha não bloqueia o upload.
+    if getattr(cfg, "gerar_thumbnail", False) and not corte.get("thumbnail"):
+        thumbnail = gerar_thumbnail(
+            caminho_video,
+            Path(caminho_video).with_suffix(".jpg"),
+            titulo,
+        )
+        if thumbnail:
+            corte["thumbnail"] = str(thumbnail)
 
     # Montar descrição final com hashtags
     if hashtags:
@@ -258,6 +262,16 @@ def fazer_upload(corte: dict) -> Optional[str]:
     print()  # nova linha após progresso
 
     video_id = resposta.get("id")
+    thumbnail = corte.get("thumbnail")
+    if video_id and thumbnail and Path(thumbnail).exists():
+        try:
+            thumb_media = MediaFileUpload(thumbnail, mimetype="image/jpeg")
+            chamar_youtube(
+                servico.thumbnails().set(videoId=video_id, media_body=thumb_media).execute
+            )
+            log("Thumbnail enviada", "YT")
+        except Exception as exc:
+            logger.warning("Thumbnail não enviada para %s: %s", video_id, exc)
     url_short = f"https://youtube.com/shorts/{video_id}"
     log("✅ Postado no YouTube!", "YT")
     log(f"   URL: {url_short}", "YT")
@@ -570,6 +584,24 @@ def agendar_lote():
             mensagem = mensagem[len(parte) :].lstrip()
 
 
+def preparar_reposts(dias: int = 30, limite: int = 10, dry_run: bool = True) -> list[dict]:
+    """Prepara reposts antigos de forma opt-in e idempotente.
+
+    Por padrão executa dry-run; a criação do registro só ocorre com ``dry_run=False``.
+    """
+    candidatos = banco.cortes_para_repost(dias=dias, limite=limite)
+    preparados = []
+    for corte in candidatos:
+        titulo = f"{corte.get('titulo_yt') or corte.get('titulo') or 'Mensagem'} — revisitado"
+        repost_id = None
+        if not dry_run:
+            repost_id = banco.registrar_repost(corte["id"], "youtube", titulo)
+            if repost_id is None:
+                continue
+        preparados.append({"corte_id": corte["id"], "repost_id": repost_id, "titulo": titulo})
+    return preparados
+
+
 def postar_agora(corte_id: int) -> bool:
     """Faz upload imediato de um corte"""
     banco.inicializar()
@@ -793,6 +825,18 @@ def main():
         action="store_true",
         help="Apaga todos os agendamentos futuros e agenda novamente.",
     )
+    parser.add_argument(
+        "--preparar-reposts",
+        action="store_true",
+        help="Lista/prepara reposts antigos; use --confirmar-reposts para gravar.",
+    )
+    parser.add_argument(
+        "--confirmar-reposts",
+        action="store_true",
+        help="Grava reposts candidatos (sempre combinado com --preparar-reposts).",
+    )
+    parser.add_argument("--repost-dias", type=int, default=30)
+    parser.add_argument("--repost-limite", type=int, default=10)
     args = parser.parse_args()
 
     if args.auth:
@@ -814,6 +858,15 @@ def main():
 
     elif args.daemon:
         daemon()
+
+    elif args.preparar_reposts:
+        preparados = preparar_reposts(
+            dias=args.repost_dias,
+            limite=args.repost_limite,
+            dry_run=not args.confirmar_reposts,
+        )
+        modo = "gravados" if args.confirmar_reposts else "encontrados (dry-run)"
+        print(f"\n✓ {len(preparados)} reposts {modo}.\n")
 
     elif args.reagendar:
 

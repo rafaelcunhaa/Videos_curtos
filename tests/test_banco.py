@@ -1,6 +1,24 @@
 import json
+from pathlib import Path
 
 import banco
+
+
+def test_repost_idempotente_e_listagem(banco_teste):
+    video_id = banco.registrar_video(
+        url="https://youtube.com/watch?v=banco123456", titulo="Teste", duracao_s=60
+    )
+    corte_id = banco.registrar_corte(
+        video_id=video_id,
+        numero=1,
+        corte_info={"tipo": "reflexao", "categoria": "ia", "titulo": "Teste"},
+        caminho_video=Path("teste.mp4"),
+        caminho_txt=Path("teste.txt"),
+        desc_info=None,
+    )
+    assert banco.registrar_repost(corte_id) is not None
+    assert banco.registrar_repost(corte_id) is None
+    assert len(banco.listar_reposts(corte_id)) == 1
 
 
 def test_extrair_watch():

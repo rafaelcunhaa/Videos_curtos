@@ -175,6 +175,13 @@ class TestManipulacaoArquivos:
             assert "#tag1 #tag2" in conteudo
             assert "TIPO: denso" in conteudo
             assert "DURAÇÃO: 45s" in conteudo
+            assert "SÉRIE: DENSO #" in conteudo
+            assert "CTA NO VÍDEO:" in conteudo
+
+    def test_gerar_thumbnail_retorna_none_para_arquivo_ausente(self, tmp_path):
+        from utils import gerar_thumbnail
+
+        assert gerar_thumbnail(tmp_path / "ausente.mp4", tmp_path / "thumb.png") is None
 
     def test_salvar_txt_publicacao_sem_corte_info(self):
         """salvar_txt_publicacao deve funcionar sem corte_info (usa dados)."""
