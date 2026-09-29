@@ -117,7 +117,7 @@ def chamar_anthropic(func: Callable, *args, **kwargs) -> Any:
     Exemplo:
         resposta = chamar_anthropic(
             cliente.messages.create,
-            model="claude-sonnet-4",
+            model="claude-sonnet-4-6",
             max_tokens=1000,
             messages=[...]
         )

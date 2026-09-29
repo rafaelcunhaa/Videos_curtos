@@ -764,6 +764,30 @@ def gerar_video(
         # 3. Montar vídeo
         video_out, txt_out = montar_video(dados, audio_path, PASTA_PRONTOS)
 
+        if video_out:
+            vid_id = banco.registrar_video(
+                url=f"gerado_{formato}_{ts}",
+                titulo=dados.get("titulo_yt", ""),
+                duracao_s=obter_duracao_audio(video_out),
+                caminho_arquivo=str(video_out),
+            )
+            banco.registrar_corte(
+                video_id=vid_id,
+                numero=1,
+                corte_info={
+                    "categoria": "ia",
+                    "tipo": formato,
+                    "titulo": dados.get("titulo_yt", ""),
+                    "gancho": dados["roteiro"].split(".")[0][:80],
+                    "inicio": 0,
+                    "fim": obter_duracao_audio(video_out),
+                },
+                caminho_video=video_out,
+                caminho_txt=txt_out,
+                desc_info=dados,
+            )
+            log("Registrado no banco", "DB")
+
         return video_out, txt_out
 
     finally:
@@ -775,33 +799,6 @@ def gerar_video(
                 logger.warning(
                     "Falha ao limpar arquivo temporário %s: %s", audio_path, e
                 )
-
-    if video_out:
-        vid_id = banco.registrar_video(
-            url=f"gerado_{formato}_{ts}",
-            titulo=dados.get("titulo_yt", ""),
-            duracao_s=obter_duracao_audio(video_out),
-            caminho_arquivo=str(video_out),
-        )
-        banco.registrar_corte(
-            video_id=vid_id,
-            numero=1,
-            corte_info={
-                "categoria": "ia",
-                "tipo": formato,
-                "titulo": dados.get("titulo_yt", ""),
-                "gancho": dados["roteiro"].split(".")[0][:80],
-                "inicio": 0,
-                "fim": obter_duracao_audio(video_out),
-            },
-            caminho_video=video_out,
-            caminho_txt=txt_out,
-            desc_info=dados,
-        )
-        log("Registrado no banco", "DB")
-
-    return video_out, txt_out
-
 
 # ─── PIPELINE DO DIA ─────────────────────────────────────
 

@@ -34,7 +34,11 @@ class Config:
     telegram_chat_id: str = field(
         default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "")
     )
-    modelo_claude: str = "claude-sonnet-4"
+    modelo_claude: str = field(
+        default_factory=lambda: os.getenv(
+            "ANTHROPIC_MODEL", "claude-sonnet-4-6"
+        )
+    )
 
     # ── Pastas ────────────────────────────────────────
     pasta_downloads: Path = Path("downloads")

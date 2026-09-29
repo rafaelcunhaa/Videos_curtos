@@ -267,7 +267,7 @@ def parse_json_robusto(texto: str) -> Any:
 
 
 def calcular_custo_claude(usage: Any) -> float:
-    """Calcula custo aproximado em USD para claude-sonnet-4."""
+    """Calcula custo aproximado em USD para Claude Sonnet."""
     # $3/M tokens input, $15/M tokens output
     return (usage.input_tokens * 3 + usage.output_tokens * 15) / 1_000_000
 
