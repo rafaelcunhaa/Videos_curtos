@@ -52,4 +52,6 @@ token.json
 
 # Sistema
 Thumbs.db
-.DS_Store
+.DS_Store.env
+gemini_video/data/
+gemini_video/data/*.db

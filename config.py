@@ -61,6 +61,16 @@ class Config:
     gerar_thumbnail: bool = False
     mostrar_transparencia_ia: bool = False
     modo_legenda: str = "frase"
+    # ── Gemini Video (opcional, isolado, desativado por padrão) ─
+    gemini_video_enabled: bool = False
+    gemini_video_mode: str = "disabled"  # disabled | manual | optional | required
+    gemini_max_scenes_per_video: int = 3
+    gemini_max_duration_per_scene: float = 6.0
+    gemini_aspect_ratio: str = "9:16"
+    gemini_dry_run: bool = True
+    gemini_quota_pause_hours: int = 5
+    gemini_failure_mode: str = "pause"  # pause | stock_fallback
+    gemini_max_retries: int = 3
 
     # ── Perfis opcionais por plataforma ────────────────
     duracao_tiktok: tuple = (30, 45)
