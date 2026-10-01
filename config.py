@@ -21,6 +21,19 @@ except ImportError:
 
 @dataclass
 class Config:
+    # ── Pipeline State (ETAPA 2) ───────
+    feature_pipeline_state: bool = False
+    # Retry / Circuit Breaker (ETAPA 3)
+    retry_max_attempts: int = 3
+    retry_backoff_base: float = 2.0  # segundos (teste); produção: 60
+    retry_max_delay: float = 3600.0
+    # Logs profissionais (ETAPA 4)
+    feature_professional_logs: bool = False
+    # Qualidade / Safe Mode (ETAPA 5)
+    safe_mode: bool = False
+    dry_run: bool = False
+    require_approval: bool = False
+
     # ── API ───────────────────────────────────────────
     chave_anthropic: str = field(
         default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "")

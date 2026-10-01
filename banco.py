@@ -131,7 +131,24 @@ def inicializar():
             UNIQUE(tipo, tema)
         );
         CREATE INDEX IF NOT EXISTS idx_temas_tipo ON temas_usados(tipo);
-        """)
+
+        CREATE TABLE IF NOT EXISTS pipeline_jobs (
+            video_id          TEXT PRIMARY KEY,
+            job_id            TEXT UNIQUE NOT NULL,
+            state             TEXT NOT NULL,
+            pipeline_version  TEXT DEFAULT '2.0.0',
+            created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            completed_stages  TEXT,  -- JSON array
+            stage_timestamps  TEXT,  -- JSON object
+            metadata          TEXT,  -- JSON object
+            last_error        TEXT,
+            next_retry_at     TEXT,
+            is_active         INTEGER DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_state ON pipeline_jobs(state);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_video ON pipeline_jobs(video_id);
+    """)
     logger.info("Banco inicializado: %s", BANCO_ARQUIVO)
 
 
