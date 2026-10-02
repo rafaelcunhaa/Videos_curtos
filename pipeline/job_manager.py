@@ -280,6 +280,13 @@ class JobManager:
         self._log_event("JOB_PAUSED", reason=reason, next_retry=next_retry.isoformat() if next_retry else None)
         return True
 
+    def record_audit(self, event_type: str, stage: str = None, status: str = "success", duration_ms: int = None, provider: str = None, video_id: str = None, message: str = None):
+        from pipeline.observability.audit import AuditTrail
+        from pipeline.observability.events import EventType
+        trail = AuditTrail()
+        trail.complete_stage(self.job_id, stage or "unknown", status=status, duration_ms=duration_ms, video_id=video_id or self.video_id, provider=provider, message=message)
+        return True
+
     def resume(self) -> JobStage | None:
         """
         Retorna o próximo estágio para executar (ponto de resume).

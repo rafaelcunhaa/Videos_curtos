@@ -1,8 +1,0 @@
-{"timestamp": "2026-10-01T16:37:16.880251", "video_id": "test_102", "job_id": "20261001-163716-f70d32", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T16:38:43.209389", "video_id": "test_102", "job_id": "20261001-163843-fa09a3", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T16:39:01.106938", "video_id": "test_102", "job_id": "20261001-163901-57a874", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T17:25:23.073502", "video_id": "test_102", "job_id": "20261001-172523-f5c51f", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T17:29:40.453098", "video_id": "test_102", "job_id": "20261001-172940-a2b536", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T17:31:45.840168", "video_id": "test_102", "job_id": "20261001-173145-48443d", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-01T17:33:27.105622", "video_id": "test_102", "job_id": "20261001-173327-f0eccc", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
-{"timestamp": "2026-10-02T07:58:52.971250", "video_id": "test_102", "job_id": "20261002-075852-684c92", "event": "JOB_CREATED", "data": {"state": "CREATED"}}

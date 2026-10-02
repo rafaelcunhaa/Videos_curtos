@@ -88,9 +88,9 @@ class TestCircuitBreaker:
         assert cb.get_state() == CircuitState.CLOSED
 
     def test_half_open_failure_opens(self):
-        cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0)
+        cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=0.5)
         cb.record_failure()
-        time.sleep(0.01)
+        time.sleep(0.06)
         assert cb.allow_request() is True
         cb.record_failure()
         assert cb.get_state() == CircuitState.OPEN

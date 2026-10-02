@@ -679,6 +679,21 @@ def verificar_e_postar_agendados():
 
     log(f"{len(pendentes)} corte(s) para postar agora!", "YT")
     for corte in pendentes:
+        # Quality Gate — mínimo, não corrige, só bloqueia se BLOCKED
+        from pipeline.quality_gate.service import QualityGate
+        from pipeline.feature_flags import quality_gate_enabled
+        if quality_gate_enabled():
+            gate = QualityGate(corte.get("caminho_video",""))
+            res = gate.run()
+            if res.get("status")=="BLOCKED":
+                log(f"Quality Gate BLOCKED — não publica: {corte['id']}","AVISO")
+                continue
+        # Observable: audit stage complete after quality gate passes
+        try:
+            from pipeline.observability.audit import AuditTrail
+            AuditTrail().complete_stage(corte.get("id"), "publish", status="success", video_id=corte.get("video_id"))
+        except Exception:
+            pass
         log(f"Postando: [{corte['id']}] {corte.get('titulo','—')}", "YT")
         yt_id = fazer_upload(corte)
         if yt_id:

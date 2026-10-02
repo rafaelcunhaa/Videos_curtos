@@ -52,6 +52,9 @@ token.json
 
 # Sistema
 Thumbs.db
-.DS_Store.env
+.DS_Store
 gemini_video/data/
 gemini_video/data/*.db
+
+# Cache do pipeline
+.pipeline_cache/
