@@ -1,0 +1,2 @@
+class GateError(Exception):
+    pass

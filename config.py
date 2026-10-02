@@ -29,6 +29,14 @@ class Config:
     retry_max_delay: float = 3600.0
     # Logs profissionais (ETAPA 4)
     feature_professional_logs: bool = False
+    # Quality Gate (ETAPA 4) — desativado por padrão para preservar produção
+    feature_quality_gate_enabled: bool = field(default_factory=lambda: os.getenv("QUALITY_GATE_ENABLED", "false").lower() in ("true", "1", "yes"))
+    quality_gate_mode: str = field(default_factory=lambda: os.getenv("QUALITY_GATE_MODE", "normal"))
+    quality_expect_audio: bool = field(default_factory=lambda: os.getenv("QUALITY_EXPECT_AUDIO", "true").lower() in ("true", "1", "yes"))
+    quality_expect_captions: bool = field(default_factory=lambda: os.getenv("QUALITY_EXPECT_CAPTIONS", "false").lower() in ("true", "1", "yes"))
+    quality_expect_thumbnail: bool = field(default_factory=lambda: os.getenv("QUALITY_EXPECT_THUMBNAIL", "false").lower() in ("true", "1", "yes"))
+    quality_min_duration_s: float = field(default_factory=lambda: float(os.getenv("QUALITY_MIN_DURATION_S", "10")))
+    quality_max_duration_s: float = field(default_factory=lambda: float(os.getenv("QUALITY_MAX_DURATION_S", "120")))
     # Qualidade / Safe Mode (ETAPA 5)
     safe_mode: bool = False
     dry_run: bool = False

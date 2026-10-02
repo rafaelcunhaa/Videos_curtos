@@ -342,6 +342,22 @@ class JobManager:
             return datetime.now() >= self._record.next_retry_at
         return True
 
+    def record_quality_gate(self, result: dict[str, Any]) -> bool:
+        """Registra o resultado do Quality Gate sem alterar o pipeline legado.
+
+        BLOCKED marca o job como FAILED; APPROVED/WARNING concluem QUALITY_GATE.
+        A publicação não é chamada aqui: o consumidor decide o próximo estágio.
+        """
+        if not self.enabled or self._record is None:
+            return result.get("status") != "BLOCKED"
+        status = str(result.get("status", "BLOCKED")).upper()
+        self._record.metadata.metrics["quality_gate_status"] = status
+        self._record.metadata.metrics["quality_gate_report"] = result
+        if status == "BLOCKED":
+            return self.fail(JobStage.QUALITY_GATE, "Quality Gate BLOCKED", retry_delay=None)
+        self.complete_stage(JobStage.QUALITY_GATE, metrics={"quality_gate_warnings": len(result.get("warnings", []))})
+        return True
+
     def can_proceed(self) -> bool:
         """Verifica se o job pode prosseguir (não está em estado bloqueador)."""
         if not self.enabled or self._record is None:

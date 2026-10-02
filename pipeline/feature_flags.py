@@ -8,3 +8,4 @@ class FeatureFlags:
     def dry_run(self): return cfg.dry_run
     def approval(self): return cfg.require_approval
     def gemini(self): return cfg.gemini_video_enabled
+    def quality_gate(self): return cfg.feature_quality_gate_enabled
