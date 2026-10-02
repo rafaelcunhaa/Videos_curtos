@@ -681,8 +681,8 @@ def verificar_e_postar_agendados():
     for corte in pendentes:
         # Quality Gate — mínimo, não corrige, só bloqueia se BLOCKED
         from pipeline.quality_gate.service import QualityGate
-        from pipeline.feature_flags import quality_gate_enabled
-        if quality_gate_enabled():
+        from pipeline.feature_flags import FeatureFlags
+        if FeatureFlags().quality_gate():
             gate = QualityGate(corte.get("caminho_video",""))
             res = gate.run()
             if res.get("status")=="BLOCKED":
