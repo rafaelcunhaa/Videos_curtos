@@ -1,0 +1,16 @@
+{"timestamp": "2026-10-01T16:37:16.887297", "video_id": "test_103", "job_id": "20261001-163716-be4dac", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T16:37:16.889255", "video_id": "test_103", "job_id": "20261001-163716-be4dac", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T16:38:43.212431", "video_id": "test_103", "job_id": "20261001-163843-2484ce", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T16:38:43.213165", "video_id": "test_103", "job_id": "20261001-163843-2484ce", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T16:39:01.109203", "video_id": "test_103", "job_id": "20261001-163901-63b13f", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T16:39:01.109857", "video_id": "test_103", "job_id": "20261001-163901-63b13f", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T17:25:23.076876", "video_id": "test_103", "job_id": "20261001-172523-23dd09", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T17:25:23.078056", "video_id": "test_103", "job_id": "20261001-172523-23dd09", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T17:29:40.455347", "video_id": "test_103", "job_id": "20261001-172940-01e482", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T17:29:40.456005", "video_id": "test_103", "job_id": "20261001-172940-01e482", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T17:31:45.842510", "video_id": "test_103", "job_id": "20261001-173145-6ea6c0", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T17:31:45.843306", "video_id": "test_103", "job_id": "20261001-173145-6ea6c0", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-01T17:33:27.108948", "video_id": "test_103", "job_id": "20261001-173327-ea2963", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-01T17:33:27.110600", "video_id": "test_103", "job_id": "20261001-173327-ea2963", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
+{"timestamp": "2026-10-02T07:58:52.974161", "video_id": "test_103", "job_id": "20261002-075852-749527", "event": "JOB_CREATED", "data": {"state": "CREATED"}}
+{"timestamp": "2026-10-02T07:58:52.975046", "video_id": "test_103", "job_id": "20261002-075852-749527", "event": "STAGE_FAILED", "data": {"stage": "render", "error": "erro", "retry_at": null}}
