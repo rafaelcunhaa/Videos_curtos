@@ -58,3 +58,4 @@ gemini_video/data/*.db
 
 # Cache do pipeline
 .pipeline_cache/
+.pipeline_cache/*

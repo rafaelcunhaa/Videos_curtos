@@ -13,6 +13,7 @@ from pipeline.quality_gate.checks.metadata_check import MetadataCheck
 from pipeline.quality_gate.checks.assets_check import AssetsCheck
 from pipeline.quality_gate.checks.thumbnail_check import ThumbnailCheck
 from pipeline.quality_gate.checks.title_description_cta_check import TitleDescriptionCtaCheck
+from pipeline.quality_gate.checks.visual_check import VisualCheck
 from pipeline.quality_gate.cache import GateCache
 
 
@@ -64,6 +65,8 @@ class QualityGate:
         all_checks.extend(MetadataCheck(self.video_path, self.metadata, self.manifest_path, self.policy).run())
         all_checks.extend(AssetsCheck(self.video_path, self.manifest_path, self.policy).run())
         all_checks.extend(ThumbnailCheck(self.video_path, self.policy, self.thumb_path).run())
+        # Verificação visual mínima (não Remotion) — frames estratégicos via ffmpeg
+        all_checks.extend(VisualCheck(self.video_path, self.policy).run())
         all_checks.extend(TitleDescriptionCtaCheck(self.metadata, self.policy).run())
 
         # Classifica: CRITICAL/ERROR bloqueiam; WARNING só bloqueia em strict.
