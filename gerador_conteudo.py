@@ -512,6 +512,10 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
         ass_path = tmp / "legenda.ass"
         roteiro_para_ass(dados_roteiro["roteiro"], duracao, ass_path)
 
+        if cfg.fundo_ia:  # fundo IA (ComfyUI/LTX) composto só com FFmpeg; None => fundos atuais
+            from fundos_ia import obter_fundo_ia
+            fundo = obter_fundo_ia(duracao, tmp) or fundo
+
         ass_esc  = str(ass_path).replace("\\","/").replace(":","\\:")
         nome_esc = NOME_CANAL.replace("@","\\@")
 
@@ -538,7 +542,7 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
             "scale=1080:1920:force_original_aspect_ratio=increase,"
             "crop=1080:1920,"
             f"ass='{ass_esc}',"
-            f"drawtext=text='{nome_esc}':fontcolor=white:fontsize=26:"
+            f"drawtext=fontfile='C\\:/Windows/Fonts/arial.ttf':text='{nome_esc}':fontcolor=white:fontsize=26:"
             "box=1:boxcolor=black@0.55:boxborderw=8:x=w-tw-20:y=24"
         )
 
@@ -577,7 +581,7 @@ def montar_video(dados_roteiro, caminho_audio, pasta_saida):
         res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
 
         if res.returncode != 0:
-            log(f"Erro FFmpeg: {res.stderr[-300:]}", "ERRO")
+            log(f"Erro FFmpeg (codigo {res.returncode}):\n{res.stderr[-6000:]}", "ERRO")
             return None, None
 
         tam = saida_mp4.stat().st_size / (1024*1024)

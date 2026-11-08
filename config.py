@@ -32,6 +32,7 @@ class Config:
     pasta_musicas:    Path = Path("musicas")
     pasta_audio_temp: Path = Path("temp_audio")
     pasta_logs:       Path = Path("logs")
+    pasta_fundos_ia:  Path = Path("fundos_ia")   # clipes gerados por IA (ComfyUI)
 
     # ── Canal ─────────────────────────────────────────
     nome_canal:       str  = "@BoomVibes6"
@@ -65,9 +66,14 @@ class Config:
 
     voz_elevenlabs_id:    str   = "pNInz6obpgDQGcFmaJgB"
 
+    # ── Fundos por IA (ComfyUI + LTX) — desligado por padrão ──
+    fundo_ia:         bool = field(default_factory=lambda: os.getenv("FUNDO_IA", "0") == "1")
+    comfyui_url:      str  = field(default_factory=lambda: os.getenv("COMFYUI_URL", "http://127.0.0.1:8188"))
+    comfyui_token:    str  = field(default_factory=lambda: os.getenv("COMFYUI_TOKEN", ""))
+
     def __post_init__(self):
         for f in ['pasta_downloads','pasta_cortes','pasta_prontos',
-                  'pasta_fundos','pasta_musicas','pasta_audio_temp','pasta_logs']:
+                  'pasta_fundos','pasta_fundos_ia','pasta_musicas','pasta_audio_temp','pasta_logs']:
             v = getattr(self, f)
             if isinstance(v, str):
                 setattr(self, f, Path(v))

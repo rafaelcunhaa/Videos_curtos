@@ -14,6 +14,7 @@ tiktok_session/
 output/
 cortes/
 fundos/
+fundos_ia/
 musicas/
 downloads/
 temp_audio/
@@ -29,3 +30,4 @@ logs/
 
 # Token TikTok
 token_tiktok.json
+.venv/
